@@ -14,6 +14,7 @@ SaaS for creating Claude chat agents and embedding them in other web apps (first
 - Manual widget test: serve a page that loads `agentdock.js` from another local origin (e.g. `python3 -m http.server 3000`) and list that origin on the agent.
 - Web search (M6): `WebSearchTool` builds the server tool, `CitationRegistry` + `StreamingContentAccumulator` insert `⟦n⟧` markers, `WebSearchProbe` backs the Edit page test button.
 - Skills (M7): `SkillService`/`SkillRules` (limits, strict UTF-8), `InstructionAssembler.Assemble(prompt, skills, now)`, pages under `Pages/Skills`, assignment on the agent Edit page, Markdig preview in `Web/Services/SkillMarkdown`.
+- Outbound (M8): all user-configured outbound calls (MCP, HTTP tools) must go through `IOutboundHttpClientFactory` (`AgentDock.Core/Outbound`); never create a raw `HttpClient` for user-supplied URLs.
 
 ## Commands
 ```bash

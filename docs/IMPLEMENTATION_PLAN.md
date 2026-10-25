@@ -1020,6 +1020,12 @@ Each milestone is merged separately, with `dotnet build` + `dotnet test` green. 
 - `SafeOutboundHandler`, `IOutboundHttpClientFactory`, the DNS resolver abstraction, redirect policy, byte caps, and logging redaction. No user-facing features yet.
 - **AC**: V11 (full suite).
 
+**As built (M8):**
+- `AgentDock.Core/Outbound`: `IpClassifier` (also classifies IPv4-mapped, IPv4-compatible, NAT64 and 6to4 forms by their embedded IPv4, and blocks Teredo/documentation/discard ranges), `OutboundUrlValidator`, `SafeOutboundHandler` (SocketsHttpHandler whose connect callback resolves once through `IDnsResolver`, rejects if any address is blocked, then connects to that IP), and `OutboundClient`/`IOutboundHttpClientFactory`.
+- Redirects, origin-bound credentials, byte caps, deadline and log redaction live in `OutboundClient` rather than a `DelegatingHandler`, because manual hop-by-hop handling needs the credential kept apart from the request headers. Credentials are only attached when the hop's origin equals `CredentialBaseUrl`; a 307/308 with a body is refused across origins; `MaxRedirects=0` (MCP) turns any 3xx into an error.
+- Beyond the plan: single-label hosts, `.localdomain`/`.home.arpa`, userinfo in URLs and caller-supplied `Host`/`Cookie`/`Proxy-*` headers are rejected.
+- Config: `AgentDock:Outbound:AllowHttpForDevelopment` (only honoured in Development), `AllowedPorts` (default 443), `SelfHosts` (plus `WEBSITE_HOSTNAME`). `System.Net.Http.HttpClient` logging is set to Warning. Tests swap `IDnsResolver` and `IIpPolicy` (loopback allowed only in the test policy).
+
 ### M9: MCP connections and tool loop
 - Connection CRUD with the GitHub template, test, discover, and snapshots; agent connection assignment and the allowlist UI; `ToolRegistryFactory`; the MCP executor; the tool loop in `ChatTurnService`; `ToolExecution` records; widget tool progress; and the owner transcript view with executions.
 - **AC**: V8 and V10 (MCP part); a live GitHub read-only query (`issue_read` on a test repo) works on staging.

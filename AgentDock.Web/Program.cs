@@ -61,6 +61,16 @@ if (!string.IsNullOrWhiteSpace(dpKey))
     dp.ProtectKeysWithAzureKeyVault(new Uri(dpKey), CredentialFactory.Create(builder.Environment, config));
 
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(sp =>
+{
+    var o = new AgentDock.Core.Outbound.OutboundOptions { IsDevelopment = builder.Environment.IsDevelopment() };
+    var section = builder.Configuration.GetSection("AgentDock:Outbound");
+    o.AllowHttpForDevelopment = section.GetValue<bool>("AllowHttpForDevelopment");
+    if (section.GetSection("AllowedPorts").Get<int[]>() is { Length: > 0 } ports) o.AllowedPorts = [.. ports];
+    o.SelfHosts = [.. (section.GetSection("SelfHosts").Get<string[]>() ?? [])];
+    if (builder.Configuration["WEBSITE_HOSTNAME"] is { Length: > 0 } self) o.SelfHosts.Add(self);
+    return o;
+});
 builder.Services.AddAgentDockCore();
 builder.Services.AddSingleton<IKeyWrapper>(sp =>
 {

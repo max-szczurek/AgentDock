@@ -1,3 +1,4 @@
+using AgentDock.Core.Outbound;
 using AgentDock.Core.Runtime;
 using AgentDock.Core.Security;
 using AgentDock.Core.Services;
@@ -37,6 +38,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUsageService, UsageService>();
         services.AddScoped<IChatTurnService, ChatTurnService>();
         services.AddScoped<IWebSearchProbe, WebSearchProbe>();
+        Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, new OutboundOptions());
+        services.AddSingleton<IDnsResolver, SystemDnsResolver>();
+        services.AddSingleton<IIpPolicy, DefaultIpPolicy>();
+        services.AddSingleton<IOutboundHttpClientFactory>(sp => new OutboundHttpClientFactory(
+            sp.GetRequiredService<OutboundOptions>(), sp.GetRequiredService<IDnsResolver>(), sp.GetRequiredService<IIpPolicy>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<OutboundClient>>()));
         return services;
     }
 }

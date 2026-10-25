@@ -1,0 +1,68 @@
+@page
+@model AgentDock.Web.Pages.Settings.IndexModel
+@{ ViewData["Title"] = "Settings"; }
+<h1>Settings</h1>
+<div class="card wide">
+    <h2>Anthropic API key</h2>
+    <p class="muted">Agents run on your own key. It is encrypted before it is stored and is never shown again.</p>
+    @if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice">@Model.Message</p> }
+    @if (!string.IsNullOrEmpty(Model.Error)) { <p class="error">@Model.Error</p> }
+    @if (Model.Credential is { } c)
+    {
+        <p>
+            Status:
+            @if (c.NeedsReentry) { <span class="badge warn" id="key-status">Needs to be re-entered</span> }
+            else if (c.Status == "Valid") { <span class="badge ok" id="key-status">Valid</span> }
+            else if (c.Status == "Invalid") { <span class="badge bad" id="key-status">Invalid</span> }
+            else { <span class="badge" id="key-status">Unverified</span> }
+            <code id="key-hint">@c.Hint</code>
+        </p>
+        @if (c.LastVerifiedUtc != null) { <p class="muted">Last verified @c.LastVerifiedUtc.Value.ToString("u")</p> }
+    }
+    else
+    {
+        <p><span class="badge" id="key-status">Not set</span></p>
+    }
+    <form method="post" asp-page-handler="Save">
+        <label for="apiKey">@(Model.Credential == null ? "Add key" : "Replace key")</label>
+        <input id="apiKey" name="apiKey" type="password" autocomplete="off" placeholder="sk-ant-..." />
+        <button type="submit">Verify and save</button>
+    </form>
+    @if (Model.Credential != null)
+    {
+        <form method="post" asp-page-handler="Remove" onsubmit="return confirm('Remove the saved key?');">
+            <button type="submit" class="link">Remove key</button>
+        </form>
+    }
+</div>
+
+@if (Model.Credential != null)
+{
+    <div class="card wide" style="margin-top:24px">
+        <h2>Models</h2>
+        @if (Model.Catalog is { Available: true } cat)
+        {
+            @if (cat.FromSnapshot) { <p class="notice">Anthropic is unreachable; showing the last saved list.</p> }
+            <table id="models-table">
+                <thead><tr><th>Family</th><th>Model</th><th>Created</th><th>Max output</th><th>Web search</th></tr></thead>
+                <tbody>
+                @foreach (var (family, m) in cat.Families.OrderBy(f => f.Key))
+                {
+                    <tr>
+                        <td>@family</td>
+                        <td>@m.DisplayName <span class="muted">(@m.ModelId)</span>@(m.IsFallback ? " - deprecated fallback" : "")</td>
+                        <td>@m.CreatedAt?.ToString("yyyy-MM-dd")</td>
+                        <td>@m.MaxOutputTokens.ToString("N0")</td>
+                        <td>@(m.SupportsWebSearch ? "Yes" : "No")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p class="error">@(Model.Catalog?.Error ?? "Models are unavailable.")</p>
+        }
+        <form method="post" asp-page-handler="Refresh"><button type="submit">Refresh models</button></form>
+    </div>
+}

@@ -980,6 +980,17 @@ Each milestone is merged separately, with `dotnet build` + `dotnet test` green. 
 - Visitor sessions (Public and Preview), conversations, `ChatTurnService` without tools, `IClaudeGateway` (including the raw-JSON round-trip spike in §5.4), the SSE endpoint, `agentdock.js` + `/embed/{id}` with CSP, Markdown rendering, New conversation, the model selector, rate limits, the cancel flow, and the in-app Preview tab.
 - **AC**: V5, V12 (public), V13, V14, and V16 (structure only); a manual preview chat streams on staging.
 
+**As built (M4 deviations from the text above):**
+- The gateway is a raw `HttpClient` SSE parser (the §5.4 fallback), not the SDK, so unknown content-block fields round-trip untouched. It targets API version `2026-10-21` and never sends `temperature`, `top_p` or `top_k`.
+- Widget API lives under `/api/widget/v1/*`: `GET agents/{id}/config` (public, CORS `*`), `POST agents/{id}/sessions` (requires `Sec-Fetch-Site: same-origin`, a matching `Origin`, and `hostOrigin` in the allowed list), and Bearer-only `conversations`, `conversations/{id}/messages`, `.../turns` (SSE) and `.../cancel`.
+- Preview sessions are minted by the Razor page handler `POST /Agents/Preview/{id}?handler=Session` (cookie + antiforgery) instead of a separate `/app/api` endpoint. The token reaches `/embed/{id}?preview=true` in the URL fragment and is kept in `sessionStorage`. A preview embed is served with `frame-ancestors 'self'` only, and works for disabled agents.
+- `/Agents/Embed/{id}` (snippet + checklist) ships in M4 so V13's "snippet has no secrets" is testable.
+- The tool loop is already bounded (8 iterations). With no tools registered, any `tool_use` is answered with an `is_error` `tool_result`, so V16 is testable with a fake gateway.
+- History is trimmed by whole turns (about 400k characters) so `tool_use`/`tool_result` pairs are never split. Incomplete assistant messages (Stop, upstream error, timeout) are shown but never replayed.
+- A turn takes a per-conversation lease through a conditional update on `Conversation.ActiveTurnId` (409 otherwise). Limits (session/hour, IP+agent/hour, daily cap in `UsageDaily`) are checked after the lease and release it on rejection. The sliding-window limiter is in-memory (single instance).
+- A Messages `401/403` marks the credential Invalid and visitors see a generic `agent_unavailable`. A `404` model error refreshes the catalog and retries once.
+- `marked` and `DOMPurify` are vendored under `wwwroot/widget/v1/vendor` (no CDN). Images are forbidden in rendered Markdown and links open with `rel="noopener noreferrer"`.
+
 ### M5: First embed in Engager (public mode)
 - The Engager changes in §7.4 items 1, 2, 4, 5, and 6, in a separate Engager PR. Add the Engager origins to the agent.
 - **AC**: V15 (public part). This is the first end-to-end use case, steps 1–3, 5, and 9–11 (chat only).
@@ -988,9 +999,22 @@ Each milestone is merged separately, with `dotnet build` + `dotnet test` green. 
 - Agent web-search settings, tool injection per capability, citation and search events, the widget Sources UI, `pause_turn` handling, and the org-disabled error mapping.
 - **AC**: V6.
 
+**As built (M6):**
+- The tool is `web_search_20260318` with `allowed_callers:["direct"]`, sent only when the agent enables search and the resolved model reports `server_tools.web_search.supported`. Allow and Block domain lists are mutually exclusive, stored as bare lowercase domains (max 50).
+- Citations are numbered per turn by `CitationRegistry` (deduped by URL). The server inserts `⟦n⟧` markers after cited text, so streamed text equals the stored `DisplayText`, while `ContentJson` stays verbatim (the model never sees markers). `CitationsJson` stores the used sources; the widget turns markers into superscript links and shows a collapsible Sources list.
+- SSE adds `search.started {query}`, `search.completed {resultCount}`, `search.failed {code}` and `citation {index,url,title,citedText}`.
+- `pause_turn` resends the conversation including the paused assistant message and counts toward the 8-iteration bound.
+- Org-disabled search (400 mentioning web search) shows visitors the generic `agent_unavailable`. The agent Edit page has a "Test web search with my key" button that reports the real reason.
+
 ### M7: Skill files
 - Upload, edit, preview, and delete; agent assignment and ordering; the instruction assembler with budgets; the assembled-prompt preview.
 - **AC**: V7; an assembler snapshot test covers ordering, escaping, and `cache_control` placement.
+
+**As built (M7):**
+- Tables `SkillFile` and `AgentSkill` (migration 0007) with composite FKs, so cross-account links fail at the DB. `/Skills` handles multi-file upload (uploading an existing file name replaces it and bumps `Version`) and `/Skills/Edit/{id}` has the editor with a live server-side preview (Markdig, HTML disabled, images dropped, only http(s)/mailto/# links).
+- Assignment and ordering live on the agent Edit page as a separate "Skills" form (tick + order number), with usage bars and an owner-only assembled prompt preview. Deleting an assigned skill is blocked, with a "remove from all and delete" option.
+- Budgets are enforced at assignment and on skill edits (no silent truncation). Note the 150,000-character prompt-plus-skills cap can't be reached today (20,000 prompt + 120,000 skills), but it is still checked.
+- The assembler puts the skills in one block under the "Reference skills" heading, escapes `</skill` and attribute values, and moves the single `cache_control` breakpoint to the last stable block (skills, else owner prompt, else preamble).
 
 ### M8: Outbound security foundation
 - `SafeOutboundHandler`, `IOutboundHttpClientFactory`, the DNS resolver abstraction, redirect policy, byte caps, and logging redaction. No user-facing features yet.

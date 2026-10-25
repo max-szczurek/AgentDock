@@ -1,0 +1,159 @@
+@page "/Agents/Edit/{id:guid?}"
+@model AgentDock.Web.Pages.Agents.EditModel
+@using AgentDock.Core.Services
+@{ ViewData["Title"] = Model.AgentId == null ? "New agent" : "Edit agent"; }
+<div class="row-between">
+    <h1>@(Model.AgentId == null ? "New agent" : "Edit agent")</h1>
+    <span>
+        @if (Model.AgentId != null) { <text><a href="/Agents/Preview/@Model.AgentId">Preview</a> &middot; <a href="/Agents/Embed/@Model.AgentId">Embed</a> &middot; </text> }
+        <a href="/">Back to agents</a>
+    </span>
+</div>
+@if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice" id="saved">@Model.Message</p> }
+@if (Model.Errors.Count > 0)
+{
+    <div class="card wide error-box" id="errors"><ul>@foreach (var e in Model.Errors) { <li>@e</li> }</ul></div>
+}
+<form method="post" class="stack">
+    <input type="hidden" asp-for="Input.ConcurrencyStamp" />
+
+    <fieldset class="card wide"><legend>General</legend>
+        <label asp-for="Input.Name">Name</label>
+        <input asp-for="Input.Name" maxlength="200" />
+        <label asp-for="Input.Description">Description</label>
+        <input asp-for="Input.Description" maxlength="1000" />
+        <label class="check"><input type="checkbox" asp-for="Input.Enabled" /> Enabled (visitors can chat)</label>
+    </fieldset>
+
+    <fieldset class="card wide"><legend>Instructions</legend>
+        <label asp-for="Input.SystemPrompt">System prompt</label>
+        <textarea asp-for="Input.SystemPrompt" rows="10" maxlength="20000" oninput="document.getElementById('prompt-count').textContent=this.value.length.toLocaleString()"></textarea>
+        <p class="muted"><span id="prompt-count">@Model.Input.SystemPrompt.Length.ToString("N0")</span> / 20,000 characters</p>
+    </fieldset>
+
+    <fieldset class="card wide"><legend>Model</legend>
+        <label asp-for="Input.DefaultFamily">Default model family</label>
+        <select asp-for="Input.DefaultFamily">
+            <option value="Haiku">Haiku (fastest)</option>
+            <option value="Sonnet">Sonnet (balanced)</option>
+            <option value="Opus">Opus (most capable)</option>
+        </select>
+        @if (Model.Catalog is { Available: true } cat)
+        {
+            <p class="muted">Currently resolves to:
+                @string.Join(", ", cat.Families.OrderBy(f => f.Key).Select(f => $"{f.Key}: {f.Value.DisplayName}"))</p>
+        }
+        <label asp-for="Input.PinnedModelId">Pin to a specific model id (optional)</label>
+        <input asp-for="Input.PinnedModelId" maxlength="100" placeholder="Leave empty to follow the newest model in the family" />
+        <label class="check"><input type="checkbox" asp-for="Input.ShowModelSelector" /> Let visitors choose a model</label>
+        <p>Allowed families:
+            <label class="check inline"><input type="checkbox" asp-for="Input.AllowHaiku" /> Haiku</label>
+            <label class="check inline"><input type="checkbox" asp-for="Input.AllowSonnet" /> Sonnet</label>
+            <label class="check inline"><input type="checkbox" asp-for="Input.AllowOpus" /> Opus</label></p>
+        <label asp-for="Input.MaxOutputTokens">Max output tokens</label>
+        <input asp-for="Input.MaxOutputTokens" type="number" min="256" max="128000" />
+    </fieldset>
+
+    <fieldset class="card wide" id="web-search"><legend>Web search</legend>
+        <label class="check"><input type="checkbox" asp-for="Input.WebSearchEnabled" /> Let the assistant search the web and cite sources</label>
+        <p class="muted">Billed to your Anthropic key: about $10 per 1,000 searches plus tokens. Only sent to models that support it.</p>
+        @if (Model.Input.WebSearchEnabled && Model.Catalog is { Available: true } wc && Enum.TryParse<AgentDock.Core.Models.ModelFamily>(Model.Input.DefaultFamily, true, out var wf)
+            && wc.Families.TryGetValue(wf, out var wm) && !wm.SupportsWebSearch)
+        {
+            <p class="notice warn" id="search-warning">The default model (@wm.DisplayName) does not report web search support, so search will be skipped.</p>
+        }
+        <div class="cols">
+            <div><label asp-for="Input.WebSearchMaxUses">Max searches per reply (1-20)</label><input asp-for="Input.WebSearchMaxUses" type="number" min="1" max="20" /></div>
+            <div><label asp-for="Input.WebSearchDomainMode">Sites</label>
+                <select asp-for="Input.WebSearchDomainMode">
+                    <option value="None">Any site</option>
+                    <option value="Allow">Only these domains</option>
+                    <option value="Block">Any site except these domains</option>
+                </select></div>
+        </div>
+        <label asp-for="Input.WebSearchDomainsText">Domains (one per line, e.g. example.com)</label>
+        <textarea asp-for="Input.WebSearchDomainsText" rows="3" placeholder="docs.example.com"></textarea>
+    </fieldset>
+
+    <fieldset class="card wide"><legend>Appearance</legend>
+        <label asp-for="Input.Title">Title</label><input asp-for="Input.Title" maxlength="60" />
+        <div class="cols">
+            <div><label asp-for="Input.PrimaryColor">Primary color</label><input asp-for="Input.PrimaryColor" /></div>
+            <div><label asp-for="Input.TextOnPrimary">Text on primary</label><input asp-for="Input.TextOnPrimary" /></div>
+            <div><label asp-for="Input.PanelBackground">Panel background</label><input asp-for="Input.PanelBackground" /></div>
+        </div>
+        <div class="cols">
+            <div><label asp-for="Input.IconPreset">Icon</label>
+                <select asp-for="Input.IconPreset"><option value="chat">Chat</option><option value="sparkle">Sparkle</option><option value="help">Help</option></select></div>
+            <div><label asp-for="Input.Position">Position</label>
+                <select asp-for="Input.Position"><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option></select></div>
+            <div><label asp-for="Input.PanelWidth">Width (320-520)</label><input asp-for="Input.PanelWidth" type="number" /></div>
+            <div><label asp-for="Input.PanelHeight">Height (400-800)</label><input asp-for="Input.PanelHeight" type="number" /></div>
+        </div>
+        <label asp-for="Input.WelcomeMessage">Welcome message</label><input asp-for="Input.WelcomeMessage" maxlength="500" />
+        <label asp-for="Input.Placeholder">Input placeholder</label><input asp-for="Input.Placeholder" maxlength="100" />
+    </fieldset>
+
+    <fieldset class="card wide"><legend>Embed &amp; security</legend>
+        <label asp-for="Input.OriginsText">Allowed origins (one per line, e.g. https://app.example.com)</label>
+        <textarea asp-for="Input.OriginsText" rows="4" placeholder="https://app.example.com"></textarea>
+        <p class="muted">Only these sites can embed the agent. No wildcards or paths; http is allowed for localhost only.</p>
+        <div class="cols">
+            <div><label asp-for="Input.TurnsPerSessionPerHour">Turns per visitor per hour (1-120)</label><input asp-for="Input.TurnsPerSessionPerHour" type="number" /></div>
+            <div><label asp-for="Input.TurnsPerIpPerHour">Turns per IP per hour (1-300)</label><input asp-for="Input.TurnsPerIpPerHour" type="number" /></div>
+            <div><label asp-for="Input.TurnsPerDay">Turns per day (1-5000)</label><input asp-for="Input.TurnsPerDay" type="number" /></div>
+            <div><label asp-for="Input.MaxMessageChars">Max message length (100-8000)</label><input asp-for="Input.MaxMessageChars" type="number" /></div>
+        </div>
+    </fieldset>
+
+    <div><button type="submit" id="save">Save agent</button></div>
+</form>
+@if (Model.AgentId != null)
+{
+    <form method="post" asp-page-handler="TestSearch" asp-route-id="@Model.AgentId" class="stack">
+        <div><button type="submit" id="test-search" class="secondary">Test web search with my key</button></div>
+        @if (!string.IsNullOrEmpty(Model.SearchTestMessage)) { <p class="notice @(Model.SearchTestOk ? "" : "warn")" id="search-test-result">@Model.SearchTestMessage</p> }
+    </form>
+}
+@if (Model.AgentId != null)
+{
+    var promptPct = Math.Min(100, Model.PromptChars * 100 / AgentService.MaxSystemPromptChars);
+    var skillPct = Math.Min(100, Model.SkillChars * 100 / SkillRules.MaxSkillChars);
+    <form method="post" asp-page-handler="SaveSkills" asp-route-id="@Model.AgentId" class="stack" id="skills-form">
+        <fieldset class="card wide" id="skills"><legend>Skills (instruction files)</legend>
+            @foreach (var e in Model.SkillErrors) { <p class="error">@e</p> }
+            @if (Model.AllSkills.Count == 0) { <p class="muted">No skills yet. <a href="/Skills">Upload some</a>.</p> }
+            else
+            {
+                <p class="muted">Tick the skills this agent should use. Lower order numbers come first, and the earlier skill wins when they conflict.</p>
+                var order = Model.AssignedSkillIds.ToList();
+                var i = 0;
+                <table>
+                    <thead><tr><th>Use</th><th>Order</th><th>Skill</th><th>Size</th></tr></thead>
+                    <tbody>
+                    @foreach (var sk in Model.AllSkills.OrderBy(x => order.Contains(x.Id) ? order.IndexOf(x.Id) : int.MaxValue).ThenBy(x => x.FileName))
+                    {
+                        var idx = order.IndexOf(sk.Id);
+                        <tr>
+                            <td><input type="hidden" name="SkillPicks[@i].Id" value="@sk.Id" /><input type="checkbox" name="SkillPicks[@i].Selected" value="true" @(idx >= 0 ? "checked" : "") /></td>
+                            <td><input type="number" name="SkillPicks[@i].Order" value="@(idx >= 0 ? idx + 1 : 100 + i)" style="width:70px" /></td>
+                            <td>@sk.DisplayName <code>@sk.FileName</code></td>
+                            <td>@(sk.SizeBytes / 1024.0 < 0.1 ? $"{sk.SizeBytes} B" : $"{sk.SizeBytes / 1024.0:0.#} KB")</td>
+                        </tr>
+                        i++;
+                    }
+                    </tbody>
+                </table>
+            }
+            <p class="muted">Instructions: @Model.PromptChars.ToString("N0") / @AgentService.MaxSystemPromptChars.ToString("N0") characters</p>
+            <div class="budget"><span style="width:@promptPct%"></span></div>
+            <p class="muted" id="skills-budget">Skills: @Model.SkillChars.ToString("N0") / @SkillRules.MaxSkillChars.ToString("N0") characters (instructions + skills max @SkillRules.MaxPromptPlusSkillsChars.ToString("N0"))</p>
+            <div class="budget @(Model.SkillChars > SkillRules.MaxSkillChars ? "over" : "")"><span style="width:@skillPct%"></span></div>
+            <div><button type="submit" id="save-skills">Save skills</button></div>
+        </fieldset>
+    </form>
+    <details class="card wide" id="assembled">
+        <summary>Assembled prompt preview (owner only) &middot; about @((Model.AssembledPrompt.Length / 4).ToString("N0")) tokens</summary>
+        <pre id="assembled-text" style="white-space:pre-wrap">@Model.AssembledPrompt</pre>
+    </details>
+}

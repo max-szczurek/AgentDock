@@ -1,0 +1,53 @@
+@page "{id:guid}"
+@model AgentDock.Web.Pages.Skills.EditModel
+@{ ViewData["Title"] = "Edit skill"; }
+<div class="row-between">
+    <h1>@Model.FileName <span class="muted">v@(Model.Version)</span></h1>
+    <a href="/Skills">Back to skills</a>
+</div>
+@if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice">@Model.Message</p> }
+@foreach (var e in Model.Errors) { <p class="error">@e</p> }
+<p class="muted">
+    Used by:
+    @if (Model.UsedBy.Count == 0) { <span id="used-by">no agents</span> }
+    else { <span id="used-by">@string.Join(", ", Model.UsedBy.Select(u => u.AgentName))</span> }
+</p>
+<div class="split">
+    <form method="post" id="skill-form">
+        <label for="Content">Content (Markdown)</label>
+        <textarea id="Content" name="Content" rows="26" class="mono" spellcheck="false">@Model.Content</textarea>
+        <p class="muted"><span id="size-counter"></span> of 64 KB</p>
+        <button type="submit" id="save-skill">Save</button>
+    </form>
+    <div>
+        <label>Preview</label>
+        <div id="preview" class="preview">@Html.Raw(Model.PreviewHtml)</div>
+    </div>
+</div>
+<div class="card wide" style="margin-top:24px">
+    <h2>Delete</h2>
+    <form method="post" asp-page-handler="Delete" onsubmit="return confirm('Delete this skill?');">
+        @if (Model.UsedBy.Count > 0)
+        {
+            <label><input type="checkbox" name="removeFromAll" value="true" /> Remove from @Model.UsedBy.Count agent(s) and delete</label>
+        }
+        <button type="submit" class="danger" id="delete-skill">Delete skill</button>
+    </form>
+</div>
+@section Scripts {
+<script>
+(function () {
+  var ta = document.getElementById('Content'), prev = document.getElementById('preview'), counter = document.getElementById('size-counter');
+  var token = document.querySelector('#skill-form input[name=__RequestVerificationToken]');
+  var timer = 0;
+  function size() { counter.textContent = Math.round(new TextEncoder().encode(ta.value).length / 102.4) / 10 + ' KB'; }
+  function render() {
+    var body = new URLSearchParams({ Content: ta.value });
+    fetch('?handler=Preview', { method: 'POST', headers: { 'RequestVerificationToken': token ? token.value : '', 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
+      .then(function (r) { return r.ok ? r.text() : ''; }).then(function (h) { prev.innerHTML = h; });
+  }
+  ta.addEventListener('input', function () { size(); clearTimeout(timer); timer = setTimeout(render, 400); });
+  size();
+})();
+</script>
+}

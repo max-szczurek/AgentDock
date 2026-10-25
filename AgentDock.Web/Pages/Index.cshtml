@@ -1,0 +1,49 @@
+@page
+@model IndexModel
+@{ ViewData["Title"] = "Agents"; }
+<div class="row-between">
+    <h1>Agents</h1>
+    <a class="btn" href="/Agents/Edit" id="new-agent">New agent</a>
+</div>
+@if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice">@Model.Message</p> }
+
+@if (Model.Agents.Count == 0)
+{
+    <div class="card wide" id="empty-state">
+        <h2>Get started</h2>
+        <ol class="checklist">
+            <li class="@(Model.HasKey ? "done" : "")">Add your Anthropic API key in <a href="/Settings">Settings</a>.</li>
+            <li>Create an agent and write its instructions.</li>
+            <li>Add the sites allowed to embed it, then copy the embed snippet.</li>
+        </ol>
+    </div>
+}
+else
+{
+    @if (!Model.HasKey) { <p class="error">No Anthropic API key yet. Add one in <a href="/Settings">Settings</a> before agents can answer.</p> }
+    <div class="grid">
+    @foreach (var a in Model.Agents)
+    {
+        <div class="card agent-card" data-agent-id="@a.Id">
+            <div class="row-between">
+                <h3><a href="/Agents/Edit/@a.Id">@a.Name</a></h3>
+                <span class="badge @(a.Status == "Enabled" ? "ok" : "")">@a.Status</span>
+            </div>
+            <p class="muted">@(string.IsNullOrEmpty(a.Description) ? "No description" : a.Description)</p>
+            <p class="muted">Model: @a.DefaultModelFamily &middot; Origins: @a.Origins.Count &middot; Updated @a.UpdatedUtc.ToString("yyyy-MM-dd HH:mm") UTC</p>
+            <div class="actions">
+                <a href="/Agents/Edit/@a.Id">Edit</a>
+                <a href="/Agents/Preview/@a.Id">Preview</a>
+                <a href="/Agents/Embed/@a.Id">Embed</a>
+                <form method="post" asp-page-handler="Duplicate" asp-route-id="@a.Id" class="inline"><button class="link" type="submit">Duplicate</button></form>
+                <form method="post" asp-page-handler="Toggle" asp-route-id="@a.Id" asp-route-enable="@(a.Status != "Enabled")" class="inline">
+                    <button class="link" type="submit">@(a.Status == "Enabled" ? "Disable" : "Enable")</button>
+                </form>
+                <form method="post" asp-page-handler="Delete" asp-route-id="@a.Id" class="inline" onsubmit="return confirm('Delete this agent?');">
+                    <button class="link danger" type="submit">Delete</button>
+                </form>
+            </div>
+        </div>
+    }
+    </div>
+}

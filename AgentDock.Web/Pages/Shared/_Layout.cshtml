@@ -1,0 +1,33 @@
+@inject AgentDock.Web.Services.AccessGate Gate
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - AgentDock</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+@if (Gate.DevLoginEnabled)
+{
+    <div class="dev-banner">DEV LOGIN ACTIVE</div>
+}
+<header class="topbar">
+    <a class="brand" href="/">AgentDock</a>
+    <nav>
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            <a href="/" class="navlink">Agents</a>
+            <a href="/Skills" class="navlink">Skills</a>
+            <a href="/Settings" class="navlink">Settings</a>
+            <span class="who">@User.Identity.Name</span>
+            <form method="post" action="/Account/Logout" class="inline"><button type="submit" class="link">Sign out</button></form>
+        }
+    </nav>
+</header>
+<main class="container">
+    @RenderBody()
+</main>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

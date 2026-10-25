@@ -1,0 +1,42 @@
+using AgentDock.Core.Runtime;
+using AgentDock.Core.Security;
+using AgentDock.Core.Services;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace AgentDock.Core;
+
+public static class ServiceCollectionExtensions
+{
+    /// <summary>
+    /// Registers secret storage, credential and model services. The IKeyWrapper (Key Vault in the app,
+    /// a local wrapper in unit tests) is registered by the host.
+    /// </summary>
+    public static IServiceCollection AddAgentDockCore(this IServiceCollection services)
+    {
+        services.AddMemoryCache();
+        services.AddSingleton<ISecretProtector>(sp => new EnvelopeSecretProtector(sp.GetRequiredService<IKeyWrapper>()));
+        services.AddScoped<SecretStore>();
+        services.AddScoped<ISecretStore>(sp => sp.GetRequiredService<SecretStore>());
+        services.AddHttpClient<IAnthropicModelsClient, AnthropicModelsClient>(c =>
+        {
+            c.BaseAddress = new Uri("https://api.anthropic.com");
+            c.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddScoped<IAnthropicCredentialService, AnthropicCredentialService>();
+        services.AddScoped<IAgentService, AgentService>();
+        services.AddScoped<ISkillService, SkillService>();
+        services.AddHttpClient<IClaudeGateway, ClaudeGateway>(c =>
+        {
+            c.BaseAddress = new Uri("https://api.anthropic.com");
+            c.Timeout = Timeout.InfiniteTimeSpan;
+        });
+        services.AddSingleton<SlidingWindowLimiter>();
+        services.AddSingleton<ActiveTurnRegistry>();
+        services.AddScoped<IVisitorSessionService, VisitorSessionService>();
+        services.AddScoped<IConversationService, ConversationService>();
+        services.AddScoped<IUsageService, UsageService>();
+        services.AddScoped<IChatTurnService, ChatTurnService>();
+        services.AddScoped<IWebSearchProbe, WebSearchProbe>();
+        return services;
+    }
+}

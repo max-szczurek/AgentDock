@@ -1,0 +1,18 @@
+@page "/dev/login"
+@model DevLoginModel
+@{ ViewData["Title"] = "Dev sign-in"; }
+<div class="card">
+    <h1>Dev sign-in</h1>
+    <p class="muted">Temporary testing access. Not available in production.</p>
+    @if (!string.IsNullOrEmpty(Model.Error)) { <p class="error">@Model.Error</p> }
+    <form method="post">
+        <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+        <label for="secret">Secret</label>
+        <input id="secret" name="secret" type="password" autocomplete="off" />
+        <label for="email">Sign in as</label>
+        <select id="email" name="email">
+            @foreach (var e in Model.Emails) { <option value="@e">@e</option> }
+        </select>
+        <button type="submit">Sign in</button>
+    </form>
+</div>

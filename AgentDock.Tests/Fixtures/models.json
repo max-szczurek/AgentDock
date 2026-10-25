@@ -1,0 +1,11 @@
+{"data":[
+{"id":"claude-opus-5","display_name":"Claude Opus 5","created_at":"2026-06-01T00:00:00Z","lifecycle":"active","line":"opus","max_tokens":64000,"capabilities":{"server_tools":{"web_search":{"supported":true}},"code_execution":{"supported":true}}},
+{"id":"claude-opus-5-5","display_name":"Claude Opus 5.5","created_at":"2026-09-21T00:00:00Z","lifecycle":"active","line":"opus","max_tokens":128000,"capabilities":{"server_tools":{"web_search":{"supported":true}},"code_execution":{"supported":true}}},
+{"id":"claude-opus-4-8","display_name":"Claude Opus 4.8","created_at":"2026-02-01T00:00:00Z","lifecycle":"deprecated","line":"opus","max_tokens":32000},
+{"id":"claude-sonnet-5-5","display_name":"Claude Sonnet 5.5","created_at":"2026-09-28T00:00:00Z","lifecycle":"active","line":"sonnet","max_tokens":64000,"capabilities":{"server_tools":{"web_search":{"supported":true}}}},
+{"id":"claude-sonnet-4-5-20250929","display_name":"Claude Sonnet 4.5","created_at":"2025-09-29T00:00:00Z","lifecycle":"active","line":"sonnet","max_tokens":64000},
+{"id":"claude-haiku-5-5","display_name":"Claude Haiku 5.5","created_at":"2026-10-07T00:00:00Z","lifecycle":"active","line":"haiku","max_tokens":32000,"capabilities":{"server_tools":{"web_search":{"supported":true}}}},
+{"id":"claude-haiku-4-5-20251001","display_name":"Claude Haiku 4.5","created_at":"2025-10-01T00:00:00Z","lifecycle":"active","line":"haiku","max_tokens":64000,"capabilities":{"server_tools":{"web_search":{"supported":true}},"code_execution":{"supported":false}}},
+{"id":"claude-fable-1","display_name":"Fable","created_at":"2026-10-10T00:00:00Z","lifecycle":"active","line":"fable","max_tokens":8000},
+{"id":"claude-mystery","display_name":"Mystery","created_at":"2026-10-11T00:00:00Z","lifecycle":"active","line":null,"max_tokens":8000}
+],"has_more":false,"last_id":"claude-mystery"}

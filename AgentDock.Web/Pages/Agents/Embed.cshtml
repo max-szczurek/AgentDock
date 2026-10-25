@@ -1,0 +1,25 @@
+@page "/Agents/Embed/{id:guid}"
+@model AgentDock.Web.Pages.Agents.EmbedModel
+@{ ViewData["Title"] = "Embed"; }
+<div class="row-between">
+    <h1>Embed: @Model.AgentName</h1>
+    <span><a href="/Agents/Edit/@Model.AgentId">Edit</a> &middot; <a href="/Agents/Preview/@Model.AgentId">Preview</a> &middot; <a href="/">All agents</a></span>
+</div>
+
+<div class="card wide">
+    <h2>Checklist</h2>
+    <ul class="checklist" id="checklist">
+        <li class="@(Model.HasOrigins ? "ok" : "todo")">@(Model.HasOrigins ? "Allowed origins configured (" + Model.OriginCount + ")" : "Add at least one allowed origin on the Edit page") </li>
+        <li class="@(Model.KeyValid ? "ok" : "todo")">@(Model.KeyValid ? "Anthropic key is valid" : "Add a valid Anthropic API key in Settings")</li>
+        <li class="@(Model.Enabled ? "ok" : "todo")">@(Model.Enabled ? "Agent is enabled" : "Enable the agent so visitors can chat")</li>
+    </ul>
+</div>
+
+<div class="card wide">
+    <h2>Snippet</h2>
+    <p class="muted">Paste before the closing <code>&lt;/body&gt;</code> tag of any page on an allowed origin. The snippet contains no secrets.</p>
+    <pre id="snippet"><code>@Model.Snippet</code></pre>
+    <h3>Allowed origins</h3>
+    @if (Model.Origins.Count == 0) { <p class="muted">None. The chat frame is blocked everywhere except this app.</p> }
+    else { <ul>@foreach (var o in Model.Origins) { <li><code>@o</code></li> }</ul> }
+</div>

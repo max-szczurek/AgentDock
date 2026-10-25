@@ -1,0 +1,49 @@
+@page
+@model AgentDock.Web.Pages.Skills.IndexModel
+@using AgentDock.Core.Services
+@{ ViewData["Title"] = "Skills"; }
+<h1>Skills</h1>
+<p class="muted">Instruction files (Markdown) that agents include as reference guidance. They never grant tools or permissions.
+Max @(SkillRules.MaxFileBytes / 1024) KB per file and @SkillRules.MaxFilesPerAccount files per account.</p>
+@if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice">@Model.Message</p> }
+
+<div class="card wide">
+    <h2>Upload</h2>
+    <form method="post" asp-page-handler="Upload" enctype="multipart/form-data">
+        <input type="file" id="skill-files" name="files" accept=".md,text/markdown" multiple />
+        <button type="submit" id="upload-skills">Upload</button>
+    </form>
+    @if (Model.Results.Count > 0)
+    {
+        <ul id="upload-results">
+        @foreach (var r in Model.Results)
+        {
+            <li class="@(r.Success ? "" : "error")">@r.FileName: @(r.Success ? "saved" : r.Error)</li>
+        }
+        </ul>
+    }
+</div>
+
+<div class="card wide" style="margin-top:24px">
+    <h2>Your skills</h2>
+    @if (Model.Items.Count == 0) { <p class="muted" id="skills-empty">No skills yet.</p> }
+    else
+    {
+        <table id="skills-table">
+            <thead><tr><th>Name</th><th>File</th><th>Size</th><th>Version</th><th>Used by</th><th>Updated</th></tr></thead>
+            <tbody>
+            @foreach (var s in Model.Items)
+            {
+                <tr data-skill-id="@s.Id">
+                    <td><a href="/Skills/Edit/@s.Id">@s.DisplayName</a>@if (!string.IsNullOrEmpty(s.Description)) { <div class="muted">@s.Description</div> }</td>
+                    <td><code>@s.FileName</code></td>
+                    <td>@(s.SizeBytes / 1024.0 < 0.1 ? $"{s.SizeBytes} B" : $"{s.SizeBytes / 1024.0:0.#} KB")</td>
+                    <td>v@s.Version</td>
+                    <td>@s.UsedByAgents agent@(s.UsedByAgents == 1 ? "" : "s")</td>
+                    <td>@s.UpdatedUtc.ToString("yyyy-MM-dd HH:mm") UTC</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</div>

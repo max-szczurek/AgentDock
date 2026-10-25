@@ -1,0 +1,13 @@
+@page "/Agents/Preview/{id:guid}"
+@model AgentDock.Web.Pages.Agents.PreviewModel
+@{ ViewData["Title"] = "Preview"; }
+<div class="row-between">
+    <h1>Preview: @Model.AgentName</h1>
+    <span><a href="/Agents/Edit/@Model.AgentId">Edit</a> &middot; <a href="/Agents/Embed/@Model.AgentId">Embed</a> &middot; <a href="/">All agents</a></span>
+</div>
+<p class="muted">This is the real chat widget, using a short-lived preview session. @(Model.Enabled ? "" : "The agent is disabled, so visitors can't use it yet.") Preview chats count toward your Anthropic usage and the agent's rate limits.</p>
+<form method="post" id="preview-form" asp-page-handler="Session" asp-route-id="@Model.AgentId"></form>
+<div class="preview-frame" id="preview-host" data-agent-id="@Model.AgentId" style="width:@(Model.Width)px;height:@(Model.Height)px">
+    <p class="muted" id="preview-status">Starting preview&hellip;</p>
+</div>
+<script src="/js/preview.js"></script>

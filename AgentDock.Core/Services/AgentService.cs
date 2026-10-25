@@ -145,6 +145,15 @@ public sealed partial class AgentService(AgentDockDbContext db, TimeProvider tim
         var links = await db.AgentSkills.AsNoTracking().Where(a => a.AgentId == agentId).ToListAsync(ct);
         foreach (var l in links)
             db.AgentSkills.Add(new AgentSkill { AccountId = accountId, AgentId = copy.Id, SkillFileId = l.SkillFileId, SortOrder = l.SortOrder });
+        var conns = await db.AgentConnections.AsNoTracking().Where(a => a.AgentId == agentId && a.AccountId == accountId).ToListAsync(ct);
+        foreach (var c in conns)
+        {
+            var nc = new AgentConnection { AccountId = accountId, AgentId = copy.Id, ConnectionId = c.ConnectionId, Alias = c.Alias, Enabled = c.Enabled };
+            db.AgentConnections.Add(nc);
+            var tools = await db.AgentMcpTools.AsNoTracking().Where(t => t.AgentConnectionId == c.Id).ToListAsync(ct);
+            foreach (var t in tools)
+                db.AgentMcpTools.Add(new AgentMcpTool { AccountId = accountId, AgentConnectionId = nc.Id, ToolName = t.ToolName, RequiresConfirmation = t.RequiresConfirmation, ApprovedSchemaHash = t.ApprovedSchemaHash });
+        }
         await db.SaveChangesAsync(ct);
         return copy;
     }

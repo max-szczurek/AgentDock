@@ -37,6 +37,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IConversationService, ConversationService>();
         services.AddScoped<IUsageService, UsageService>();
         services.AddScoped<IChatTurnService, ChatTurnService>();
+        services.AddScoped<AgentDock.Core.Mcp.IMcpGateway, AgentDock.Core.Mcp.McpGateway>();
+        services.AddScoped<AgentDock.Core.Mcp.IConnectionService, AgentDock.Core.Mcp.ConnectionService>();
+        services.AddScoped<AgentDock.Core.Mcp.IAgentToolService, AgentDock.Core.Mcp.AgentToolService>();
+        services.AddScoped<AgentDock.Core.Mcp.IToolRegistryFactory, AgentDock.Core.Mcp.ToolRegistryFactory>();
+        services.AddScoped<AgentDock.Core.Mcp.IToolExecutor, AgentDock.Core.Mcp.ToolExecutor>();
         services.AddScoped<IWebSearchProbe, WebSearchProbe>();
         Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, new OutboundOptions());
         services.AddSingleton<IDnsResolver, SystemDnsResolver>();

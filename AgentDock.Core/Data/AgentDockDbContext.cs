@@ -13,6 +13,11 @@ public class AgentDockDbContext(DbContextOptions<AgentDockDbContext> options)
     public DbSet<AgentAllowedOrigin> AgentAllowedOrigins => Set<AgentAllowedOrigin>();
     public DbSet<SkillFile> SkillFiles => Set<SkillFile>();
     public DbSet<AgentSkill> AgentSkills => Set<AgentSkill>();
+    public DbSet<Connection> Connections => Set<Connection>();
+    public DbSet<McpToolSnapshot> McpToolSnapshots => Set<McpToolSnapshot>();
+    public DbSet<AgentConnection> AgentConnections => Set<AgentConnection>();
+    public DbSet<AgentMcpTool> AgentMcpTools => Set<AgentMcpTool>();
+    public DbSet<ToolExecution> ToolExecutions => Set<ToolExecution>();
     public DbSet<VisitorSession> VisitorSessions => Set<VisitorSession>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ConversationMessage> ConversationMessages => Set<ConversationMessage>();
@@ -87,6 +92,71 @@ public class AgentDockDbContext(DbContextOptions<AgentDockDbContext> options)
         {
             e.ToTable("AgentSkill");
             e.HasKey(x => new { x.AgentId, x.SkillFileId });
+        });
+
+        builder.Entity<Connection>(e =>
+        {
+            e.ToTable("Connection");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Name).HasMaxLength(100);
+            e.Property(x => x.Kind).HasMaxLength(10);
+            e.Property(x => x.BaseUrl).HasMaxLength(2048);
+            e.Property(x => x.AuthType).HasMaxLength(20);
+            e.Property(x => x.AuthHeaderName).HasMaxLength(100);
+            e.Property(x => x.Status).HasMaxLength(10);
+            e.Property(x => x.LastError).HasMaxLength(1000);
+            e.Property(x => x.LastTestedUtc).HasColumnType("datetime2(3)");
+            e.Property(x => x.CreatedUtc).HasColumnType("datetime2(3)");
+            e.Property(x => x.UpdatedUtc).HasColumnType("datetime2(3)");
+            e.Property(x => x.DeletedUtc).HasColumnType("datetime2(3)");
+        });
+
+        builder.Entity<McpToolSnapshot>(e =>
+        {
+            e.ToTable("McpToolSnapshot");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.ToolName).HasMaxLength(128);
+            e.Property(x => x.Title).HasMaxLength(200);
+            e.Property(x => x.SchemaHash).HasColumnType("binary(32)");
+            e.Property(x => x.DiscoveredUtc).HasColumnType("datetime2(3)");
+        });
+
+        builder.Entity<AgentConnection>(e =>
+        {
+            e.ToTable("AgentConnection");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Alias).HasMaxLength(24);
+            e.Property(x => x.CreatedUtc).HasColumnType("datetime2(3)");
+        });
+
+        builder.Entity<AgentMcpTool>(e =>
+        {
+            e.ToTable("AgentMcpTool");
+            e.HasKey(x => new { x.AgentConnectionId, x.ToolName });
+            e.Property(x => x.ToolName).HasMaxLength(128);
+            e.Property(x => x.ApprovedSchemaHash).HasColumnType("binary(32)");
+        });
+
+        builder.Entity<ToolExecution>(e =>
+        {
+            e.ToTable("ToolExecution");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.ToolUseId).HasMaxLength(100);
+            e.Property(x => x.ExposedName).HasMaxLength(128);
+            e.Property(x => x.Kind).HasMaxLength(10);
+            e.Property(x => x.UpstreamToolName).HasMaxLength(128);
+            e.Property(x => x.Status).HasMaxLength(20);
+            e.Property(x => x.ErrorCode).HasMaxLength(60);
+            e.Property(x => x.ErrorMessage).HasMaxLength(1000);
+            e.Property(x => x.ResultPreview).HasMaxLength(4000);
+            e.Property(x => x.RequestedUtc).HasColumnType("datetime2(3)");
+            e.Property(x => x.DecidedUtc).HasColumnType("datetime2(3)");
+            e.Property(x => x.StartedUtc).HasColumnType("datetime2(3)");
+            e.Property(x => x.CompletedUtc).HasColumnType("datetime2(3)");
         });
 
         builder.Entity<VisitorSession>(e =>

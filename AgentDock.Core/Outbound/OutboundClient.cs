@@ -6,20 +6,29 @@ namespace AgentDock.Core.Outbound;
 public interface IOutboundHttpClientFactory
 {
     IOutboundClient Create();
+    /// <summary>A guarded HttpClient for SDKs that need one (MCP). Dispose it when done; the shared handler stays alive.</summary>
+    HttpClient CreateHttpClient(OutboundHttpClientOptions options, TimeSpan timeout);
 }
 
 public sealed class OutboundHttpClientFactory : IOutboundHttpClientFactory, IDisposable
 {
     private readonly OutboundClient _client;
     private readonly HttpMessageInvoker _invoker;
+    private readonly HttpMessageHandler _handler;
+    private readonly OutboundOptions _options;
+    private readonly ILogger<OutboundClient> _logger;
 
     public OutboundHttpClientFactory(OutboundOptions options, IDnsResolver resolver, IIpPolicy policy, ILogger<OutboundClient> logger)
     {
-        _invoker = new HttpMessageInvoker(SafeOutboundHandler.Create(options, resolver, policy), disposeHandler: true);
+        _options = options; _logger = logger;
+        _handler = SafeOutboundHandler.Create(options, resolver, policy);
+        _invoker = new HttpMessageInvoker(_handler, disposeHandler: true);
         _client = new OutboundClient(_invoker, options, logger);
     }
 
     public IOutboundClient Create() => _client;
+    public HttpClient CreateHttpClient(OutboundHttpClientOptions options, TimeSpan timeout) =>
+        new GuardedHandler(_handler, _options, options, _logger).ToClient(timeout);
     public void Dispose() => _invoker.Dispose();
 }
 

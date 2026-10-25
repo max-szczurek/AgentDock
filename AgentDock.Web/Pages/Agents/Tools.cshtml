@@ -1,0 +1,50 @@
+@page "/Agents/Tools/{id:guid}"
+@model AgentDock.Web.Pages.Agents.ToolsModel
+@{ ViewData["Title"] = "Agent tools"; }
+<div class="row-between">
+    <h1>Tools for @Model.AgentName</h1>
+    <span><a href="/Agents/Edit/@Model.AgentId">Back to agent</a> | <a href="/Agents/Transcripts/@Model.AgentId">Transcripts</a></span>
+</div>
+<p class="muted">Pick which tools from your connections this agent may use. Only ticked tools are ever offered to the model.
+Tools that change data (or do not declare themselves read-only) require confirmation by default.
+Confirmation prompts arrive in a later release, so tools that require confirmation are refused for now.</p>
+@if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice" id="tools-message">@Model.Message</p> }
+@foreach (var e in Model.Errors) { <p class="error">@e</p> }
+@if (Model.Items.Count == 0) { <p class="muted" id="no-connections">No connections yet. <a href="/Connections/Edit">Create one</a>.</p> }
+<form method="post" id="tools-form">
+@for (var i = 0; i < Model.Items.Count; i++)
+{
+    var c = Model.Items[i];
+    <div class="card wide" style="margin-bottom:24px" data-connection="@c.Connection.Id">
+        <h2>@c.Connection.Name</h2>
+        <input type="hidden" name="Rows[@i].ConnectionId" value="@c.Connection.Id" />
+        <label><input type="checkbox" name="Rows[@i].Assigned" value="true" @(c.Assigned ? "checked" : "") class="assign-box" /> Use this connection</label>
+        <label><input type="checkbox" name="Rows[@i].Enabled" value="true" @(!c.Assigned || c.Enabled ? "checked" : "") /> Enabled</label>
+        <label for="alias-@i">Alias <span class="muted">(a-z, 0-9, _ up to 24; tool names become alias__tool)</span></label>
+        <input id="alias-@i" name="Rows[@i].Alias" value="@c.Alias" maxlength="24" />
+        @if (c.Tools.Count == 0) { <p class="muted">No tools discovered. <a href="/Connections/Edit/@c.Connection.Id">Discover tools</a>.</p> }
+        else
+        {
+            <table>
+                <thead><tr><th>Allow</th><th>Tool</th><th>Requires confirmation</th><th>Description</th></tr></thead>
+                <tbody>
+                @for (var j = 0; j < c.Tools.Count; j++)
+                {
+                    var t = c.Tools[j];
+                    <tr>
+                        <td>
+                            <input type="hidden" name="Rows[@i].Tools[@j].Name" value="@t.ToolName" />
+                            <input type="checkbox" name="Rows[@i].Tools[@j].Allowed" value="true" @(t.Allowed ? "checked" : "") class="allow-box" />
+                        </td>
+                        <td><code>@t.ToolName</code>@if (t.Drifted) { <div class="error">Changed since approved. Review and save to re-approve.</div> }</td>
+                        <td><input type="checkbox" name="Rows[@i].Tools[@j].Confirm" value="true" @((t.Allowed ? t.RequiresConfirmation : t.DefaultConfirm) ? "checked" : "") /></td>
+                        <td>@t.Description</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+@if (Model.Items.Count > 0) { <button type="submit" id="save-tools">Save tools</button> }
+</form>

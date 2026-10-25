@@ -1,0 +1,79 @@
+@page "/Connections/Edit/{id:guid?}"
+@model AgentDock.Web.Pages.Connections.EditModel
+@{ ViewData["Title"] = Model.ConnectionId == null ? "New connection" : "Edit connection"; }
+<div class="row-between">
+    <h1>@(Model.ConnectionId == null ? "New connection" : Model.Input.Name)</h1>
+    <a href="/Connections">Back to connections</a>
+</div>
+@if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice" id="connection-message">@Model.Message</p> }
+@foreach (var e in Model.Errors) { <p class="error">@e</p> }
+
+@if (Model.ConnectionId == null)
+{
+    <div class="card wide" style="margin-bottom:24px">
+        <h2>Templates</h2>
+        <form method="post" asp-page-handler="Template">
+            <button type="submit" id="template-github">GitHub (read-only)</button>
+            <span class="muted">Prefills the GitHub remote MCP server with the repos, issues, pull requests and context toolsets, read-only.</span>
+        </form>
+    </div>
+}
+
+<form method="post" id="connection-form" class="card wide">
+    <label for="Input_Name">Name</label>
+    <input id="Input_Name" name="Input.Name" value="@Model.Input.Name" maxlength="100" />
+    <label for="Input_BaseUrl">MCP server URL</label>
+    <input id="Input_BaseUrl" name="Input.BaseUrl" value="@Model.Input.BaseUrl" maxlength="2048" />
+    <label for="Input_AuthType">Authentication</label>
+    <select id="Input_AuthType" name="Input.AuthType">
+        <option value="None" selected="@(Model.Input.AuthType == "None")">None</option>
+        <option value="Bearer" selected="@(Model.Input.AuthType == "Bearer")">Bearer token</option>
+    </select>
+    <label for="Input_BearerToken">Bearer token <span class="muted">(write-only@(Model.SecretHint != null ? $"; stored: {Model.SecretHint}" : ""))</span></label>
+    <input id="Input_BearerToken" name="Input.BearerToken" type="password" autocomplete="off" placeholder="@(Model.SecretHint != null ? "Leave blank to keep the stored token" : "")" />
+    <label for="HeadersText">Extra headers <span class="muted">(one per line, <code>X-Name: value</code>; X-* only)</span></label>
+    <textarea id="HeadersText" name="HeadersText" rows="4" class="mono">@Model.HeadersText</textarea>
+    <label for="Input_TimeoutSeconds">Timeout seconds (5-60)</label>
+    <input id="Input_TimeoutSeconds" name="Input.TimeoutSeconds" type="number" min="5" max="60" value="@Model.Input.TimeoutSeconds" />
+    <button type="submit" id="save-connection">Save</button>
+</form>
+
+@if (Model.ConnectionId != null)
+{
+    <div class="card wide" style="margin-top:24px">
+        <h2>Tools</h2>
+        <p class="muted">Status: <strong id="connection-status">@Model.Status</strong>@if (!string.IsNullOrEmpty(Model.LastError)) { <span> - @Model.LastError</span> }</p>
+        <form method="post" asp-page-handler="Test" class="inline"><button type="submit" id="test-connection">Test</button></form>
+        <form method="post" asp-page-handler="Discover" class="inline"><button type="submit" id="discover-tools">Discover tools</button></form>
+        @if (Model.Tools.Count == 0) { <p class="muted" id="tools-empty">No tools discovered yet.</p> }
+        else
+        {
+            <table id="tools-table">
+                <thead><tr><th>Tool</th><th>Description</th><th>Annotations</th><th>Input schema</th></tr></thead>
+                <tbody>
+                @foreach (var t in Model.Tools)
+                {
+                    <tr class="@(t.IsPresent ? "" : "muted")">
+                        <td><code>@t.ToolName</code>@if (!t.IsPresent) { <div>(no longer offered)</div> }</td>
+                        <td>@t.Description</td>
+                        <td><code>@t.AnnotationsJson</code></td>
+                        <td><details><summary>schema</summary><pre>@t.InputSchemaJson</pre></details></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="card wide" style="margin-top:24px">
+        <h2>Delete</h2>
+        <form method="post" asp-page-handler="Delete" onsubmit="return confirm('Delete this connection?');">
+            @if (Model.UsedBy > 0)
+            {
+                <p class="muted">Used by @Model.UsedBy agent@(Model.UsedBy == 1 ? "" : "s").</p>
+                <label><input type="checkbox" name="removeFromAll" value="true" id="remove-from-all" /> Remove from all agents and delete</label>
+            }
+            <button type="submit" class="danger" id="delete-connection">Delete connection</button>
+        </form>
+    </div>
+}

@@ -34,6 +34,8 @@ else
             <div class="actions">
                 <a href="/Agents/Edit/@a.Id">Edit</a>
                 <a href="/Agents/Preview/@a.Id">Preview</a>
+                <a href="/Agents/Tools/@a.Id">Tools</a>
+                <a href="/Agents/Transcripts/@a.Id">Transcripts</a>
                 <a href="/Agents/Embed/@a.Id">Embed</a>
                 <form method="post" asp-page-handler="Duplicate" asp-route-id="@a.Id" class="inline"><button class="link" type="submit">Duplicate</button></form>
                 <form method="post" asp-page-handler="Toggle" asp-route-id="@a.Id" asp-route-enable="@(a.Status != "Enabled")" class="inline">

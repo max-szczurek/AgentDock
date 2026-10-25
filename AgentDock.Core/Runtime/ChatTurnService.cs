@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using AgentDock.Core.Data;
+using AgentDock.Core.Mcp;
 using AgentDock.Core.Models;
 using AgentDock.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -47,11 +48,14 @@ public sealed class ChatTurnService(
     IUsageService usage,
     AgentDock.Core.Services.ISkillService skills,
     SlidingWindowLimiter limiter,
+    IToolRegistryFactory toolRegistries,
+    IToolExecutor toolExecutor,
     ActiveTurnRegistry registry,
     TimeProvider time,
     ILogger<ChatTurnService> logger) : IChatTurnService
 {
     public const int MaxIterations = 8;
+    public const int MaxToolCallsPerTurn = 10;
     public static readonly TimeSpan TurnDeadline = TimeSpan.FromSeconds(120);
 
     public async Task<PrepareResult> PrepareAsync(TurnRequest r, CancellationToken ct)
@@ -121,7 +125,7 @@ public sealed class ChatTurnService(
         StreamingContentAccumulator? acc = null;
         var persistedPartial = false;
         long inTok = 0, outTok = 0;
-        int searches = 0;
+        int searches = 0, toolCalls = 0;
 
         void Emit(string name, JsonObject data) => output.TryWrite(new WidgetEvent(name, data));
 
@@ -137,6 +141,8 @@ public sealed class ChatTurnService(
             var skillFiles = await skills.ForAgentAsync(r.Agent.AccountId, r.Agent.Id, CancellationToken.None);
             var system = InstructionAssembler.Assemble(r.Agent.SystemPrompt,
                 skillFiles.Select(f => new SkillText(f.DisplayName, f.FileName, f.Version, f.Content)).ToList(), time.GetUtcNow());
+            var toolRegistry = await toolRegistries.BuildAsync(r.Agent.AccountId, r.Agent.Id, CancellationToken.None);
+            var toolCtx = new ToolCallContext(r.Agent.AccountId, r.Agent.Id, r.Conversation.Id, turnId);
             var retriedModel = false;
             var citations = new CitationRegistry();
             var emittedSources = 0;
@@ -145,7 +151,10 @@ public sealed class ChatTurnService(
             {
                 var history = await conversations.HistoryAsync(r.Conversation, ConversationService.DefaultHistoryChars, CancellationToken.None);
                 var searchTool = WebSearchTool.Build(r.Agent, model);
-                var request = new ClaudeRequest(model.ModelId, maxTokens, system, history, searchTool == null ? null : [searchTool]);
+                var allTools = new List<JsonObject>();
+                if (searchTool != null) allTools.Add(searchTool);
+                allTools.AddRange(toolRegistry.ClaudeToolDefinitions());
+                var request = new ClaudeRequest(model.ModelId, maxTokens, system, history, allTools.Count == 0 ? null : allTools);
                 acc = new StreamingContentAccumulator(citations);
                 persistedPartial = false;
                 try
@@ -189,11 +198,27 @@ public sealed class ChatTurnService(
                 var toolUses = acc.ClientToolUses();
                 if (acc.StopReason == "tool_use" && toolUses.Count > 0)
                 {
-                    var results = new JsonArray(toolUses.Select(t => (JsonNode?)new JsonObject
+                    var results = new JsonArray();
+                    foreach (var t in toolUses)
                     {
-                        ["type"] = "tool_result", ["tool_use_id"] = t["id"]?.GetValue<string>(),
-                        ["content"] = "Tool not available.", ["is_error"] = true,
-                    }).ToArray());
+                        var useId = t["id"]?.GetValue<string>() ?? "";
+                        var toolName = t["name"]?.GetValue<string>() ?? "";
+                        if (++toolCalls > MaxToolCallsPerTurn)
+                        {
+                            results.Add(new JsonObject { ["type"] = "tool_result", ["tool_use_id"] = useId, ["content"] = "Too many tool calls in this turn.", ["is_error"] = true });
+                            continue;
+                        }
+                        var known = toolRegistry.TryGet(toolName, out var rt);
+                        var shown = known ? rt.DisplayName : "tool";
+                        if (known) Emit("tool.started", new JsonObject { ["name"] = shown });
+                        var outcome = await toolExecutor.ExecuteAsync(toolCtx, toolRegistry, useId, toolName, t["input"]?.DeepClone(), ct);
+                        if (known)
+                        {
+                            if (outcome.IsError) Emit("tool.failed", new JsonObject { ["name"] = shown, ["message"] = outcome.PublicError ?? "The tool call failed." });
+                            else Emit("tool.completed", new JsonObject { ["name"] = shown });
+                        }
+                        results.Add(new JsonObject { ["type"] = "tool_result", ["tool_use_id"] = useId, ["content"] = outcome.Content, ["is_error"] = outcome.IsError });
+                    }
                     await conversations.AppendAsync(r.Conversation, new ConversationMessage
                     {
                         TurnId = turnId, Role = "user", ContentJson = results.ToJsonString(),
@@ -244,7 +269,7 @@ public sealed class ChatTurnService(
         {
             try
             {
-                await usage.AddTokensAsync(r.Agent.Id, inTok, outTok, searches, 0, CancellationToken.None);
+                await usage.AddTokensAsync(r.Agent.Id, inTok, outTok, searches, toolCalls, CancellationToken.None);
                 await conversations.EndTurnAsync(r.Conversation, turnId, CancellationToken.None);
             }
             catch (Exception e) { logger.LogError(e, "Turn cleanup failed for {Turn}", turnId); }

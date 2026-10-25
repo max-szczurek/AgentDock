@@ -15,6 +15,7 @@ SaaS for creating Claude chat agents and embedding them in other web apps (first
 - Web search (M6): `WebSearchTool` builds the server tool, `CitationRegistry` + `StreamingContentAccumulator` insert `⟦n⟧` markers, `WebSearchProbe` backs the Edit page test button.
 - Skills (M7): `SkillService`/`SkillRules` (limits, strict UTF-8), `InstructionAssembler.Assemble(prompt, skills, now)`, pages under `Pages/Skills`, assignment on the agent Edit page, Markdig preview in `Web/Services/SkillMarkdown`.
 - Outbound (M8): all user-configured outbound calls (MCP, HTTP tools) must go through `IOutboundHttpClientFactory` (`AgentDock.Core/Outbound`); never create a raw `HttpClient` for user-supplied URLs.
+- MCP tools (M9): the model only sees tools in the per-turn `TurnToolRegistry` (DB allowlist); every `tool_use` goes through `IToolExecutor`, which blocks unknown names, validates input, re-checks the connection, and records a `ToolExecution`. Never call an MCP server except through `IMcpGateway`.
 
 ## Commands
 ```bash

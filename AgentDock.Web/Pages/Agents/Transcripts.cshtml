@@ -1,0 +1,72 @@
+@page "/Agents/Transcripts/{id:guid}/{conversationId:guid?}"
+@model AgentDock.Web.Pages.Agents.TranscriptsModel
+@{ ViewData["Title"] = "Transcripts"; }
+<div class="row-between">
+    <h1>Transcripts: @Model.AgentName</h1>
+    <span><a href="/Agents/Edit/@Model.AgentId">Back to agent</a></span>
+</div>
+@if (Model.Selected == null)
+{
+    @if (Model.Conversations.Count == 0) { <p class="muted" id="transcripts-empty">No conversations yet.</p> }
+    else
+    {
+        <div class="card wide">
+            <table id="transcripts-table">
+                <thead><tr><th>Conversation</th><th>Messages</th><th>Tool calls</th><th>Updated</th></tr></thead>
+                <tbody>
+                @foreach (var c in Model.Conversations)
+                {
+                    <tr>
+                        <td><a href="/Agents/Transcripts/@Model.AgentId/@c.Id">@(string.IsNullOrEmpty(c.Title) ? "(untitled)" : c.Title)</a></td>
+                        <td>@c.MessageCount</td>
+                        <td>@(Model.ToolCounts.TryGetValue(c.Id, out var n) ? n : 0)</td>
+                        <td>@c.UpdatedUtc.ToString("yyyy-MM-dd HH:mm") UTC</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+else
+{
+    <p><a href="/Agents/Transcripts/@Model.AgentId">All conversations</a></p>
+    <div class="card wide" id="transcript">
+        @foreach (var m in Model.Messages)
+        {
+            <div class="msg" data-role="@m.Role" style="margin-bottom:12px">
+                <strong>@(m.Role == "user" ? "Visitor" : "Assistant")</strong>
+                <span class="muted">@m.CreatedUtc.ToString("HH:mm:ss") UTC</span>
+                @if (!string.IsNullOrEmpty(m.DisplayText)) { <div style="white-space:pre-wrap">@m.DisplayText</div> }
+            </div>
+        }
+    </div>
+    <div class="card wide" style="margin-top:24px">
+        <h2>Tool executions</h2>
+        @if (Model.Executions.Count == 0) { <p class="muted" id="no-executions">No tool calls in this conversation.</p> }
+        else
+        {
+            <table id="executions-table">
+                <thead><tr><th>When</th><th>Tool</th><th>Status</th><th>Duration</th><th>Detail</th></tr></thead>
+                <tbody>
+                @foreach (var e in Model.Executions)
+                {
+                    <tr data-status="@e.Status">
+                        <td>@e.RequestedUtc.ToString("HH:mm:ss") UTC</td>
+                        <td><code>@e.ExposedName</code></td>
+                        <td>@e.Status</td>
+                        <td>@(e.DurationMs?.ToString() ?? "-") ms</td>
+                        <td>
+                            @if (!string.IsNullOrEmpty(e.ErrorMessage)) { <div class="error">@e.ErrorMessage</div> }
+                            <details><summary>input / result</summary>
+                                <pre>@e.InputJson</pre>
+                                <pre>@e.ResultPreview</pre>
+                            </details>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+}

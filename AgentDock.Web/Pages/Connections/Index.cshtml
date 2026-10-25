@@ -1,0 +1,31 @@
+@page
+@model AgentDock.Web.Pages.Connections.IndexModel
+@{ ViewData["Title"] = "Connections"; }
+<div class="row-between">
+    <h1>Connections</h1>
+    <a class="btn" href="/Connections/Edit" id="new-connection">New connection</a>
+</div>
+<p class="muted">Remote MCP servers your agents can use as tools. Tokens are write-only and stored encrypted.</p>
+@if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice">@Model.Message</p> }
+<div class="card wide">
+    @if (Model.Items.Count == 0) { <p class="muted" id="connections-empty">No connections yet.</p> }
+    else
+    {
+        <table id="connections-table">
+            <thead><tr><th>Name</th><th>URL</th><th>Auth</th><th>Status</th><th>Tools</th><th>Used by</th></tr></thead>
+            <tbody>
+            @foreach (var c in Model.Items)
+            {
+                <tr data-connection-id="@c.Connection.Id">
+                    <td><a href="/Connections/Edit/@c.Connection.Id">@c.Connection.Name</a></td>
+                    <td><code>@c.Connection.BaseUrl</code></td>
+                    <td>@c.Connection.AuthType@(c.SecretHint != null ? $" ({c.SecretHint})" : "")</td>
+                    <td>@c.Connection.Status@if (!string.IsNullOrEmpty(c.Connection.LastError)) { <div class="muted">@c.Connection.LastError</div> }</td>
+                    <td>@c.ToolCount</td>
+                    <td>@c.UsedByAgents agent@(c.UsedByAgents == 1 ? "" : "s")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</div>

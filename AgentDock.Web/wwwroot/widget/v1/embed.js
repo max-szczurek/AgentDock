@@ -229,7 +229,7 @@
     els.input.value = ''; els.input.style.height = 'auto';
     setBusy(true);
     var userEl = addMsg('user', text);
-    var botEl = null, raw = '', raf = 0, stopped = false, chip = null, sources = {}, nSources = 0;
+    var botEl = null, raw = '', raf = 0, stopped = false, chip = null, toolChip = null, sources = {}, nSources = 0;
 
     function paint() { raf = 0; if (botEl) { renderMarkdown(botEl, raw, sources); scroll(); } }
     function finish(opts) {
@@ -275,6 +275,15 @@
         } else if (name === 'search.failed') {
           if (chip) chip.textContent = 'Search unavailable';
           chip = null;
+        } else if (name === 'tool.started') {
+          toolChip = el('div', 'chip', 'Using ' + data.name + '\u2026');
+          els.msgs.appendChild(toolChip); scroll();
+        } else if (name === 'tool.completed') {
+          if (toolChip) toolChip.textContent = 'Used ' + data.name;
+          toolChip = null;
+        } else if (name === 'tool.failed') {
+          if (toolChip) toolChip.textContent = data.name + ' failed: ' + (data.message || 'unavailable');
+          toolChip = null;
         } else if (name === 'message.completed') {
           if (data.stopReason === 'cancelled') stopped = true;
           else toHost({ type: 'agentdock:unread' });

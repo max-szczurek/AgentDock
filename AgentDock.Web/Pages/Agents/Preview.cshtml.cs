@@ -32,7 +32,7 @@ public class PreviewModel(IAgentService agents, IVisitorSessionService sessions,
         if (account == null) return Forbid();
         var agent = await agents.GetAsync(account.Id, id, ct);
         if (agent == null) return NotFound();
-        var issued = await sessions.CreateAsync(agent, "Preview", $"{Request.Scheme}://{Request.Host}", HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
+        var issued = await sessions.CreateAsync(agent, "Preview", $"{Request.Scheme}://{Request.Host}", HttpContext.Connection.RemoteIpAddress?.ToString(), ct: ct);
         return new JsonResult(new { token = issued.Token });
     }
 }

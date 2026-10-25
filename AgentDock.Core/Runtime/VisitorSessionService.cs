@@ -9,7 +9,7 @@ public sealed record IssuedSession(string Token, VisitorSession Session);
 
 public interface IVisitorSessionService
 {
-    Task<IssuedSession> CreateAsync(Agent agent, string mode, string hostOrigin, string? ip, CancellationToken ct = default);
+    Task<IssuedSession> CreateAsync(Agent agent, string mode, string hostOrigin, string? ip, Guid? externalSessionId = null, CancellationToken ct = default);
     Task<VisitorSession?> AuthenticateAsync(string token, CancellationToken ct = default);
     Task RevokeAsync(Guid sessionId, CancellationToken ct = default);
 }
@@ -23,7 +23,7 @@ public sealed class VisitorSessionService(AgentDockDbContext db, TimeProvider ti
 
     public static byte[] Hash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
 
-    public async Task<IssuedSession> CreateAsync(Agent agent, string mode, string hostOrigin, string? ip, CancellationToken ct = default)
+    public async Task<IssuedSession> CreateAsync(Agent agent, string mode, string hostOrigin, string? ip, Guid? externalSessionId = null, CancellationToken ct = default)
     {
         var token = TokenPrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
         var now = time.GetUtcNow().UtcDateTime;
@@ -31,7 +31,7 @@ public sealed class VisitorSessionService(AgentDockDbContext db, TimeProvider ti
         {
             AccountId = agent.AccountId, AgentId = agent.Id, TokenHash = Hash(token), Mode = mode,
             HostOrigin = hostOrigin.Length > 300 ? hostOrigin[..300] : hostOrigin,
-            IpHash = Hash("ip:" + (ip ?? "")), CreatedUtc = now, LastSeenUtc = now,
+            IpHash = Hash("ip:" + (ip ?? "")), ExternalSessionId = externalSessionId, CreatedUtc = now, LastSeenUtc = now,
             ExpiresUtc = now + (mode == "Preview" ? PreviewLifetime : PublicLifetime),
         };
         db.VisitorSessions.Add(s);

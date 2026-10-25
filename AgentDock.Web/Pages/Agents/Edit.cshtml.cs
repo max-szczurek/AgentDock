@@ -38,6 +38,7 @@ public class EditModel(IAgentService agents, IAnthropicCredentialService credent
         public int TurnsPerIpPerHour { get; set; } = 60;
         public int TurnsPerDay { get; set; } = 500;
         public int MaxMessageChars { get; set; } = 4000;
+        public bool AllowExternalSessionId { get; set; } = true;
         public bool WebSearchEnabled { get; set; }
         public int WebSearchMaxUses { get; set; } = 5;
         public string WebSearchDomainMode { get; set; } = "None";
@@ -173,7 +174,7 @@ public class EditModel(IAgentService agents, IAnthropicCredentialService credent
         PanelWidth = i.Appearance.PanelWidth, PanelHeight = i.Appearance.PanelHeight,
         WelcomeMessage = i.Appearance.WelcomeMessage, Placeholder = i.Appearance.Placeholder,
         OriginsText = string.Join("\n", i.Origins),
-        WebSearchEnabled = i.WebSearchEnabled, WebSearchMaxUses = i.WebSearchMaxUses,
+        AllowExternalSessionId = i.AllowExternalSessionId, WebSearchEnabled = i.WebSearchEnabled, WebSearchMaxUses = i.WebSearchMaxUses,
         WebSearchDomainMode = i.WebSearchDomainMode, WebSearchDomainsText = string.Join("\n", i.WebSearchDomains),
         TurnsPerSessionPerHour = i.Limits.TurnsPerSessionPerHour, TurnsPerIpPerHour = i.Limits.TurnsPerIpPerHour,
         TurnsPerDay = i.Limits.TurnsPerDay, MaxMessageChars = i.Limits.MaxMessageChars,
@@ -197,7 +198,7 @@ public class EditModel(IAgentService agents, IAnthropicCredentialService credent
             DefaultModelFamily = familyOk && Enum.IsDefined(family) ? family : (ModelFamily)(-1),
             PinnedModelId = f.PinnedModelId, ShowModelSelector = f.ShowModelSelector, AllowedModelFamilies = allowed,
             MaxOutputTokens = f.MaxOutputTokens, Enabled = f.Enabled, ConcurrencyStamp = stamp,
-            WebSearchEnabled = f.WebSearchEnabled, WebSearchMaxUses = f.WebSearchMaxUses,
+            AllowExternalSessionId = f.AllowExternalSessionId, WebSearchEnabled = f.WebSearchEnabled, WebSearchMaxUses = f.WebSearchMaxUses,
             WebSearchDomainMode = f.WebSearchDomainMode ?? "None",
             WebSearchDomains = (f.WebSearchDomainsText ?? "").Split(['\n', '\r', ',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(),
             Appearance = new AppearanceSettings

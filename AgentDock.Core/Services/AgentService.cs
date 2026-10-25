@@ -20,6 +20,7 @@ public sealed class AgentInput
     public AgentLimits Limits { get; set; } = new();
     public List<string> Origins { get; set; } = [];
     public bool Enabled { get; set; }
+    public bool AllowExternalSessionId { get; set; } = true;
     public bool WebSearchEnabled { get; set; }
     public int WebSearchMaxUses { get; set; } = 5;
     public string WebSearchDomainMode { get; set; } = "None";
@@ -59,7 +60,7 @@ public sealed partial class AgentService(AgentDockDbContext db, TimeProvider tim
         Limits = AgentLimits.FromJson(a.LimitsJson),
         Origins = a.Origins.Select(o => o.Origin).OrderBy(o => o).ToList(),
         Enabled = a.Status == "Enabled", ConcurrencyStamp = a.ConcurrencyStamp,
-        WebSearchEnabled = a.WebSearchEnabled, WebSearchMaxUses = a.WebSearchMaxUses,
+        AllowExternalSessionId = a.AllowExternalSessionId, WebSearchEnabled = a.WebSearchEnabled, WebSearchMaxUses = a.WebSearchMaxUses,
         WebSearchDomainMode = a.WebSearchDomainMode, WebSearchDomains = WebSearchTool.ParseDomains(a.WebSearchDomainsJson).ToList(),
     };
 
@@ -137,7 +138,7 @@ public sealed partial class AgentService(AgentDockDbContext db, TimeProvider tim
             ShowModelSelector = src.ShowModelSelector, AllowedModelFamilies = src.AllowedModelFamilies,
             MaxOutputTokens = src.MaxOutputTokens, WebSearchEnabled = src.WebSearchEnabled, WebSearchMaxUses = src.WebSearchMaxUses,
             WebSearchDomainMode = src.WebSearchDomainMode, WebSearchDomainsJson = src.WebSearchDomainsJson,
-            IdentityMode = src.IdentityMode, AppearanceJson = src.AppearanceJson, LimitsJson = src.LimitsJson,
+            IdentityMode = src.IdentityMode, AllowExternalSessionId = src.AllowExternalSessionId, AppearanceJson = src.AppearanceJson, LimitsJson = src.LimitsJson,
             Status = "Disabled",
         };
         foreach (var o in src.Origins) copy.Origins.Add(new AgentAllowedOrigin { AccountId = accountId, AgentId = copy.Id, Origin = o.Origin });
@@ -189,6 +190,7 @@ public sealed partial class AgentService(AgentDockDbContext db, TimeProvider tim
         a.ShowModelSelector = i.ShowModelSelector;
         a.AllowedModelFamilies = string.Join(",", allowed.Select(f => f.ToString().ToLowerInvariant()));
         a.MaxOutputTokens = i.MaxOutputTokens;
+        a.AllowExternalSessionId = i.AllowExternalSessionId;
         a.WebSearchEnabled = i.WebSearchEnabled;
         a.WebSearchMaxUses = i.WebSearchMaxUses;
         a.WebSearchDomainMode = i.WebSearchDomainMode;

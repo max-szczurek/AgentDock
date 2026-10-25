@@ -6,9 +6,14 @@
   var inFrame = window.parent !== window;
   var API = '/api/widget/v1';
   var store = preview ? window.sessionStorage : window.localStorage;
-  var K = { token: 'agentdock:v1:' + agentId + ':token', conv: 'agentdock:v1:' + agentId + ':conv', model: 'agentdock:v1:' + agentId + ':model' };
+  var K = {};
+  function setKeys(sessionId) {
+    var p = 'agentdock:v1:' + agentId + (sessionId ? ':s:' + sessionId : '');
+    K = { token: p + ':token', conv: p + ':conv', model: 'agentdock:v1:' + agentId + ':model' };
+  }
+  setKeys(null);
 
-  var state = { token: null, convId: null, config: null, hostOrigin: null, busy: false, ctrl: null };
+  var state = { token: null, convId: null, config: null, hostOrigin: null, busy: false, ctrl: null, sessionId: null };
   var els = {};
 
   function get(k) { try { return store.getItem(k); } catch (e) { return null; } }
@@ -93,7 +98,7 @@
   function createSession() {
     return fetch(API + '/agents/' + agentId + '/sessions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hostOrigin: state.hostOrigin })
+      body: JSON.stringify({ hostOrigin: state.hostOrigin, sessionId: state.sessionId })
     }).then(function (r) {
       if (!r.ok) throw new Error('session ' + r.status);
       return r.json();
@@ -181,6 +186,7 @@
     els.send.classList.toggle('stop', b);
     if (els.model) els.model.disabled = b;
     els.input.disabled = b;
+    els.msgs.classList.toggle('busy', b);
     if (!b) els.input.focus();
   }
 
@@ -189,7 +195,18 @@
     var welcome = state.config.appearance.welcomeMessage;
     var id = get(K.conv);
     var done = function () { if (welcome && !els.msgs.querySelector('.m')) addMsg('assistant', welcome); };
-    if (!id) { state.convId = null; done(); return Promise.resolve(); }
+    var pick = id ? Promise.resolve(id) : (state.sessionId && !state.fresh ? api('/conversations').then(function (r) {
+      return r.ok ? r.json() : [];
+    }).then(function (list) { return list.length ? list[0].id : null; }) : Promise.resolve(null));
+    return pick.then(function (cid) {
+      id = cid;
+      if (!id) { state.convId = null; done(); return null; }
+      set(K.conv, id);
+      return loadMessages(id, done);
+    });
+  }
+
+  function loadMessages(id, done) {
     return api('/conversations/' + id + '/messages').then(function (r) {
       if (!r.ok) { set(K.conv, null); state.convId = null; return; }
       return r.json().then(function (d) {
@@ -199,14 +216,15 @@
           (m.citations || []).forEach(function (c) { sources = sources || {}; sources[c.index] = c; });
           addMsg(m.role, m.text, { incomplete: m.incomplete, sources: sources });
         });
+        (d.pendingApprovals || []).forEach(function (a) { approvalCard(a); });
       });
     }).then(done);
   }
 
   function newConversation() {
     if (state.busy) return;
-    set(K.conv, null); state.convId = null;
-    loadHistory();
+    set(K.conv, null); state.convId = null; state.fresh = true;
+    loadHistory().then(function () { state.fresh = false; });
   }
 
   function ensureConversation() {
@@ -223,12 +241,64 @@
     if (state.ctrl) state.ctrl.abort();
   }
 
+  function approvalCard(a) {
+    var card = el('div', 'approval');
+    card.dataset.id = a.toolExecutionId;
+    var title = el('div', 'approval-title');
+    title.appendChild(document.createTextNode('The assistant wants to use '));
+    title.appendChild(el('strong', null, a.name));
+    card.appendChild(title);
+    if (a.summary) card.appendChild(el('pre', 'approval-summary', a.summary));
+    var row = el('div', 'approval-actions');
+    var yes = el('button', 'approve', 'Approve'); yes.type = 'button';
+    var no = el('button', 'deny', 'Deny'); no.type = 'button';
+    yes.addEventListener('click', function () { decide(a.toolExecutionId, true, card); });
+    no.addEventListener('click', function () { decide(a.toolExecutionId, false, card); });
+    row.appendChild(yes); row.appendChild(no); card.appendChild(row);
+    els.msgs.appendChild(card); scroll();
+    return card;
+  }
+
+  function decide(id, approve, card) {
+    if (state.busy || !state.convId) return;
+    card.classList.add('decided');
+    card.querySelector('.approval-actions').replaceChildren(el('span', 'muted', approve ? 'Approved' : 'Declined'));
+    runStream(function () {
+      state.ctrl = new AbortController();
+      return api('/conversations/' + state.convId + '/approvals/' + id, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approve: approve }), signal: state.ctrl.signal
+      });
+    }, function (d) {
+      card.remove();
+      note((d.error && d.error.message) || 'Something went wrong. Please try again.', 'err');
+      loadHistory();
+    });
+  }
+
   function send() {
     var text = els.input.value.trim();
     if (!text || state.busy) return;
     els.input.value = ''; els.input.style.height = 'auto';
-    setBusy(true);
     var userEl = addMsg('user', text);
+    runStream(function () {
+      return ensureConversation().then(function (cid) {
+        state.ctrl = new AbortController();
+        var body = { text: text };
+        if (els.model) body.model = els.model.value;
+        return api('/conversations/' + cid + '/turns', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: state.ctrl.signal
+        });
+      });
+    }, function (d) {
+      userEl.remove();
+      els.input.value = text;
+      note((d.error && d.error.message) || 'Something went wrong. Please try again.', 'err');
+    });
+  }
+
+  // Runs one streamed request (a chat turn or an approval decision) and renders its events.
+  function runStream(request, onReject) {
+    setBusy(true);
     var botEl = null, raw = '', raf = 0, stopped = false, chip = null, toolChip = null, sources = {}, nSources = 0;
 
     function paint() { raf = 0; if (botEl) { renderMarkdown(botEl, raw, sources); scroll(); } }
@@ -242,21 +312,12 @@
       setBusy(false);
     }
 
-    ensureConversation().then(function (cid) {
-      state.ctrl = new AbortController();
-      var body = { text: text };
-      if (els.model) body.model = els.model.value;
-      return api('/conversations/' + cid + '/turns', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: state.ctrl.signal
-      });
-    }).then(function (r) {
+    request().then(function (r) {
       if (!r.ok) {
-        return r.json().catch(function () { return {}; }).then(function (d) {
-          userEl.remove();
-          els.input.value = text;
-          note((d.error && d.error.message) || 'Something went wrong. Please try again.', 'err');
-          finish();
-        });
+        return r.json().catch(function () { return {}; }).then(function (d) { onReject(d); finish(); });
+      }
+      if ((r.headers.get('content-type') || '').indexOf('text/event-stream') < 0) {
+        return r.json().catch(function () { return {}; }).then(function () { finish(); loadHistory(); });
       }
       var reader = r.body.getReader(), dec = new TextDecoder(), buf = '';
       function handle(name, data) {
@@ -284,9 +345,13 @@
         } else if (name === 'tool.failed') {
           if (toolChip) toolChip.textContent = data.name + ' failed: ' + (data.message || 'unavailable');
           toolChip = null;
+        } else if (name === 'approval.required') {
+          approvalCard(data);
+        } else if (name === 'approval.decided') {
+          note(data.status === 'Expired' ? 'That request expired.' : 'Request declined.');
         } else if (name === 'message.completed') {
           if (data.stopReason === 'cancelled') stopped = true;
-          else toHost({ type: 'agentdock:unread' });
+          else if (data.stopReason !== 'awaiting_approval') toHost({ type: 'agentdock:unread' });
         } else if (name === 'error') {
           if (botEl) botEl.classList.add('incomplete');
           note(data.message || 'Something went wrong.', 'err');
@@ -345,6 +410,8 @@
       if (ev.source !== window.parent || !ev.data || ev.data.type !== 'agentdock:init') return;
       window.removeEventListener('message', onInit);
       state.hostOrigin = ev.origin;
+      var sid = typeof ev.data.sessionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ev.data.sessionId) ? ev.data.sessionId.toLowerCase() : null;
+      if (sid) { state.sessionId = sid; setKeys(sid); }
       state.token = get(K.token);
       var ready = state.token ? Promise.resolve() : createSession();
       ready.then(start).catch(function () { fail('This assistant is not available on this site.'); });

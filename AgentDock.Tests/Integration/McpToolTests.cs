@@ -34,12 +34,15 @@ public sealed class FakeMcpTools
     [McpServerTool(Name = "boom", ReadOnly = true), System.ComponentModel.Description("Always fails")]
     public static string Boom() => throw new InvalidOperationException("secret-internal-detail");
 
+    [McpServerTool(Name = "nap", ReadOnly = true), System.ComponentModel.Description("Sleeps briefly")]
+    public static async Task<string> Nap() { await Task.Delay(700); return "rested"; }
+
     [McpServerTool(Name = "long_text", ReadOnly = true), System.ComponentModel.Description("Returns a lot of text")]
     public static string LongText() => new('y', 40_000);
 }
 
 [TestClass]
-public class McpToolTests
+public partial class McpToolTests
 {
     private const string ApiKey = "sk-ant-api03-MCPTEST-aaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private const string Host = "https://host.example.com";
@@ -153,7 +156,7 @@ public class McpToolTests
             e.Connection = saved.Connection!;
             var (res, tools) = await conns.DiscoverAsync(e.AccountId, e.Connection.Id);
             Assert.IsTrue(res!.Ok, res.Message);
-            Assert.AreEqual(4, tools.Count);
+            Assert.AreEqual(5, tools.Count);
             return e;
         }
 
@@ -165,10 +168,10 @@ public class McpToolTests
             Assert.AreEqual(0, errors.Count, string.Join(";", errors));
         }
 
-        public async Task<HttpClient> SessionAsync()
+        public async Task<HttpClient> SessionAsync(string? sessionId = null, Guid? agentId = null)
         {
             var c = Factory.CreateClient(new() { AllowAutoRedirect = false, HandleCookies = false });
-            var req = new HttpRequestMessage(HttpMethod.Post, $"/api/widget/v1/agents/{Agent.Id}/sessions") { Content = JsonContent.Create(new { hostOrigin = Host }) };
+            var req = new HttpRequestMessage(HttpMethod.Post, $"/api/widget/v1/agents/{agentId ?? Agent.Id}/sessions") { Content = JsonContent.Create(new { hostOrigin = Host, sessionId }) };
             req.Headers.Add("Sec-Fetch-Site", "same-origin");
             var r = await c.SendAsync(req);
             Assert.AreEqual(HttpStatusCode.OK, r.StatusCode, await r.Content.ReadAsStringAsync());
@@ -238,6 +241,35 @@ public class McpToolTests
         await Task.CompletedTask;
     }
 
+    private static async IAsyncEnumerable<JsonObject> ToolUsesOf(params (string Id, string Name, string Input)[] uses)
+    {
+        yield return FakeClaudeGateway.Ev("""{"type":"message_start","message":{"model":"claude-fake","usage":{"input_tokens":10}}}""");
+        for (var i = 0; i < uses.Length; i++)
+        {
+            yield return new JsonObject
+            {
+                ["type"] = "content_block_start", ["index"] = i,
+                ["content_block"] = new JsonObject { ["type"] = "tool_use", ["id"] = uses[i].Id, ["name"] = uses[i].Name, ["input"] = new JsonObject() },
+            };
+            yield return new JsonObject
+            {
+                ["type"] = "content_block_delta", ["index"] = i,
+                ["delta"] = new JsonObject { ["type"] = "input_json_delta", ["partial_json"] = uses[i].Input },
+            };
+            yield return new JsonObject { ["type"] = "content_block_stop", ["index"] = i };
+        }
+        yield return FakeClaudeGateway.Ev("""{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}""");
+        await Task.CompletedTask;
+    }
+
+    private static Func<ClaudeRequest, CancellationToken, IAsyncEnumerable<JsonObject>> UsesThenAnswer(params (string Id, string Name, string Input)[] uses) =>
+        (req, _) =>
+        {
+            var last = req.Messages.Last();
+            var isResult = last?["role"]?.GetValue<string>() == "user" && last["content"] is JsonArray a && a.Count > 0 && a[0]?["type"]?.GetValue<string>() == "tool_result";
+            return isResult ? FakeClaudeGateway.Text("done") : ToolUsesOf(uses);
+        };
+
     private static string LastToolResultText(ClaudeRequest req) =>
         req.Messages.Last()!["content"]![0]!["content"]!.GetValue<string>();
 
@@ -300,24 +332,6 @@ public class McpToolTests
         Assert.AreEqual(4, rows.Count);
         Assert.IsTrue(rows.All(r => r.Status == "Blocked" && r.Kind == "Unknown"));
         Assert.AreEqual(calls, FakeMcpTools.CreateCalls);
-    }
-
-    [TestMethod]
-    public async Task V8_ToolRequiringConfirmation_IsBlockedUntilM10_AndNotExecuted()
-    {
-        await using var env = await Env.StartAsync();
-        await env.AssignAsync("gh", ("create_thing", true));
-        env.Claude.Script = CallThenAnswer("gh__create_thing", """{"name":"x"}""");
-        var c = await env.SessionAsync();
-        var calls = FakeMcpTools.CreateCalls;
-        var events = await TurnAsync(c, "go");
-
-        Assert.AreEqual(calls, FakeMcpTools.CreateCalls);
-        Assert.IsTrue(events.Any(e => e.Name == "tool.started"));
-        Assert.IsTrue(events.Any(e => e.Name == "tool.failed"));
-        var rows = await env.ExecutionsAsync();
-        Assert.AreEqual("Blocked", rows.Single().Status);
-        Assert.AreEqual("confirmation_required", rows.Single().ErrorCode);
     }
 
     [TestMethod]

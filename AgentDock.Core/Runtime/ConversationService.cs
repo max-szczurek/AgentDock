@@ -28,7 +28,7 @@ public sealed class ConversationService(AgentDockDbContext db, TimeProvider time
         var c = new Conversation
         {
             AccountId = session.AccountId, AgentId = session.AgentId, VisitorSessionId = session.Id,
-            ExternalUserId = session.ExternalUserId,
+            ExternalUserId = session.ExternalUserId, ExternalSessionId = session.ExternalSessionId,
         };
         db.Conversations.Add(c);
         await db.SaveChangesAsync(ct);
@@ -37,14 +37,15 @@ public sealed class ConversationService(AgentDockDbContext db, TimeProvider time
 
     public async Task<IReadOnlyList<ConversationView>> ListAsync(VisitorSession session, CancellationToken ct = default) =>
         await db.Conversations.AsNoTracking()
-            .Where(c => c.AgentId == session.AgentId && c.VisitorSessionId == session.Id && c.DeletedUtc == null && c.MessageCount > 0)
+            .Where(c => c.AgentId == session.AgentId && c.DeletedUtc == null && c.MessageCount > 0
+                && (session.ExternalSessionId == null ? c.VisitorSessionId == session.Id : c.ExternalSessionId == session.ExternalSessionId))
             .OrderByDescending(c => c.UpdatedUtc).Take(50)
             .Select(c => new ConversationView(c.Id, c.Title, c.UpdatedUtc)).ToListAsync(ct);
 
     /// <summary>Returns the conversation only if it belongs to this exact session; callers answer 404 otherwise.</summary>
     public Task<Conversation?> GetOwnedAsync(VisitorSession session, Guid conversationId, CancellationToken ct = default) =>
-        db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId && c.AgentId == session.AgentId
-            && c.VisitorSessionId == session.Id && c.DeletedUtc == null, ct);
+        db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId && c.AgentId == session.AgentId && c.DeletedUtc == null
+            && (session.ExternalSessionId == null ? c.VisitorSessionId == session.Id : c.ExternalSessionId == session.ExternalSessionId), ct);
 
     public async Task<IReadOnlyList<MessageView>> MessagesAsync(Conversation conversation, CancellationToken ct = default)
     {

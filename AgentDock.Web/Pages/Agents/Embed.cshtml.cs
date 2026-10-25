@@ -15,6 +15,7 @@ public class EmbedModel(IAgentService agents, IAnthropicCredentialService creden
     public bool HasOrigins => Origins.Count > 0;
     public int OriginCount => Origins.Count;
     public string Snippet { get; private set; } = "";
+    public bool AllowSessionId { get; private set; }
 
     public async Task<IActionResult> OnGetAsync(Guid id, CancellationToken ct)
     {
@@ -28,6 +29,7 @@ public class EmbedModel(IAgentService agents, IAnthropicCredentialService creden
         var baseUrl = config["AGENTDOCK_PUBLIC_BASE_URL"]?.TrimEnd('/');
         if (string.IsNullOrWhiteSpace(baseUrl)) baseUrl = $"{Request.Scheme}://{Request.Host}";
         Snippet = $"<script src=\"{baseUrl}/widget/v1/agentdock.js\"\n        data-agent-id=\"{agent.Id}\" async></script>";
+        AllowSessionId = agent.AllowExternalSessionId;
         return Page();
     }
 }

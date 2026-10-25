@@ -157,6 +157,7 @@ public class AgentDockDbContext(DbContextOptions<AgentDockDbContext> options)
             e.Property(x => x.DecidedUtc).HasColumnType("datetime2(3)");
             e.Property(x => x.StartedUtc).HasColumnType("datetime2(3)");
             e.Property(x => x.CompletedUtc).HasColumnType("datetime2(3)");
+            e.Property(x => x.ExpiresUtc).HasColumnType("datetime2(3)");
         });
 
         builder.Entity<VisitorSession>(e =>

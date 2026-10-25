@@ -35,3 +35,7 @@ Configuration uses flat env/app-setting names: `AGENTDOCK_SQL_CONNECTION_STRING`
   Scripted: `curl -c jar -X POST -H "X-Dev-Login-Secret: $S" -d "email=dev-agent@agentdock.dev" $BASE/dev/login`, then reuse the cookie jar.
   Browser: open `/dev/login`, enter the secret, pick `dev-agent@agentdock.dev`. A red "DEV LOGIN ACTIVE" banner is shown while enabled.
   Never print the secret. Read it via ARM from the `agentdock-staging` app settings (plan §0.5) or generate a fresh one locally.
+
+## Approvals and session IDs (M10)
+- Confirmation tools park in `ToolExecution` (`PendingApproval`, 15 min expiry); `ApprovalService` claims/settles/assembles; resume via `ChatTurnService.PrepareApprovalAsync`. Expired = denied.
+- Developer session IDs: optional `data-session-id` GUID, stored as `ExternalSessionId`, scoped per agent, bearer-secret semantics; never log it.

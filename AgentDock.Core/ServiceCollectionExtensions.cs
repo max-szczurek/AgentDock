@@ -42,6 +42,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<AgentDock.Core.Mcp.IAgentToolService, AgentDock.Core.Mcp.AgentToolService>();
         services.AddScoped<AgentDock.Core.Mcp.IToolRegistryFactory, AgentDock.Core.Mcp.ToolRegistryFactory>();
         services.AddScoped<AgentDock.Core.Mcp.IToolExecutor, AgentDock.Core.Mcp.ToolExecutor>();
+        services.AddScoped<AgentDock.Core.Mcp.IApprovalService, AgentDock.Core.Mcp.ApprovalService>();
         services.AddScoped<IWebSearchProbe, WebSearchProbe>();
         Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.TryAddSingleton(services, new OutboundOptions());
         services.AddSingleton<IDnsResolver, SystemDnsResolver>();

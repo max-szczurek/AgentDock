@@ -5,6 +5,8 @@
   var agentId = script.getAttribute('data-agent-id');
   if (!agentId) return;
   var adOrigin = new URL(script.src).origin;
+  var rawSessionId = script.getAttribute('data-session-id');
+  var sessionId = rawSessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawSessionId.trim()) ? rawSessionId.trim() : null;
 
   var ICONS = {
     chat: '<path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>',
@@ -60,7 +62,7 @@
       if (ev.origin !== adOrigin || !frame || ev.source !== frame.contentWindow) return;
       var d = ev.data;
       if (!d || d.source !== 'agentdock') return;
-      if (d.type === 'agentdock:ready') frame.contentWindow.postMessage({ source: 'agentdock', type: 'agentdock:init', v: 1 }, adOrigin);
+      if (d.type === 'agentdock:ready') frame.contentWindow.postMessage({ source: 'agentdock', type: 'agentdock:init', v: 1, sessionId: sessionId }, adOrigin);
       else if (d.type === 'agentdock:close') close();
       else if (d.type === 'agentdock:unread' && !panel.classList.contains('open')) dot.style.display = 'block';
     });

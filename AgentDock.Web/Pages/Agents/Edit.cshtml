@@ -54,6 +54,11 @@
         <input asp-for="Input.MaxOutputTokens" type="number" min="256" max="128000" />
     </fieldset>
 
+    <fieldset class="card wide" id="session-ids"><legend>Developer session IDs</legend>
+        <label class="check"><input type="checkbox" asp-for="Input.AllowExternalSessionId" /> Allow <code>data-session-id</code> in the embed code</label>
+        <p class="muted">Lets your site tie a chat to your own record by passing a random GUID. Anyone holding the GUID can open that chat, so only render it on pages behind your own login.</p>
+    </fieldset>
+
     <fieldset class="card wide" id="web-search"><legend>Web search</legend>
         <label class="check"><input type="checkbox" asp-for="Input.WebSearchEnabled" /> Let the assistant search the web and cite sources</label>
         <p class="muted">Billed to your Anthropic key: about $10 per 1,000 searches plus tokens. Only sent to models that support it.</p>

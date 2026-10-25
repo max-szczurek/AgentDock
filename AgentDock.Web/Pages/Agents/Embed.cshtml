@@ -19,6 +19,15 @@
     <h2>Snippet</h2>
     <p class="muted">Paste before the closing <code>&lt;/body&gt;</code> tag of any page on an allowed origin. The snippet contains no secrets.</p>
     <pre id="snippet"><code>@Model.Snippet</code></pre>
+    @if (Model.AllowSessionId)
+    {
+        <h3>Optional: your own session id</h3>
+        <p class="muted" id="session-id-help">By default each visitor's browser keeps its own chat. To tie the chat to your own record instead, add a random GUID you generate and store yourself.
+        Every browser that loads the page with the same GUID sees the same chat. <strong>Treat the GUID like a password</strong>: anyone who has it can open that chat, so only render it on pages behind your own login.</p>
+        <pre id="session-snippet"><code>&lt;script src="@Model.Snippet.Split('"')[1]"
+        data-agent-id="@Model.AgentId"
+        data-session-id="3f2b8c1e-9a4d-4c1b-8f0e-2d7a6b5c4e11" async&gt;&lt;/script&gt;</code></pre>
+    }
     <h3>Allowed origins</h3>
     @if (Model.Origins.Count == 0) { <p class="muted">None. The chat frame is blocked everywhere except this app.</p> }
     else { <ul>@foreach (var o in Model.Origins) { <li><code>@o</code></li> }</ul> }

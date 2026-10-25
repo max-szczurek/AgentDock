@@ -826,6 +826,33 @@ Recommendation: ship v1 with bearer tokens only. Add OAuth as milestone L2 with 
 - **New conversation**: `POST /conversations` creates a new row. The old one stays listed for the session; Public mode shows only the current conversation plus a "New" button.
 - **Origin restrictions don't authenticate users.** `frame-ancestors` and origin checks only stop *other websites* from embedding the agent in a browser. Anyone can still call the public API directly with a script and forge `Origin`. That's why there are rate limits and usage caps, the BYO-key cost is bounded, and anything user-specific requires **signed identity mode**.
 
+### 7.2.1 Developer session IDs (optional `data-session-id`, M10)
+
+Lets a web developer tie a chat to their own record instead of the visitor's browser, with one optional embed attribute. No JWT or backend call is needed.
+
+```html
+<script src="https://<agentdock>/widget/v1/agentdock.js"
+        data-agent-id="AGENT-GUID"
+        data-session-id="3f2b8c1e-9a4d-4c1b-8f0e-2d7a6b5c4e11"></script>
+```
+
+- **Without the attribute**: unchanged (§7.2); the chat belongs to the browser's visitor session.
+- **With it**: every visitor session for that agent that presents the same GUID sees and continues the same conversations, from any browser or device. The developer generates a random GUID, stores it with their own record, and renders it into the page.
+- **Rules**:
+  - The GUID is a **bearer secret**: possession grants access to that chat. The Embed tab and docs say so and recommend it only on pages the developer already protects with their own login.
+  - Scoped per agent: the same GUID on two agents is two separate chats.
+  - Must parse as a GUID and must not be `Guid.Empty`, otherwise `400 invalid_session_id`. Docs ask for a random (v4) GUID.
+  - Never placed in a URL and never logged: the loader passes it to the iframe in the `agentdock:init` `postMessage` (not the `/embed` query string, which would reach access logs and `Referer`); server logs record only a short SHA-256 prefix.
+  - Ignored in Signed mode (§7.3); a signed session-key claim can be added later if needed.
+  - Agent setting **"Allow developer session IDs"** (`Agent.AllowExternalSessionId bit NOT NULL DEFAULT 1`). When off, a supplied ID is rejected with `400 session_id_not_allowed`.
+- **Flow**:
+  1. `agentdock.js` reads `data-session-id`, validates the GUID shape, and includes `sessionId` in `agentdock:init`.
+  2. `embed.js` sends it on session creation: `POST /api/widget/v1/agents/{id}/sessions { hostOrigin, sessionId }`. The server validates it and stores it on `VisitorSession.ExternalSessionId`.
+  3. Conversation list/get/create filter by `(AgentId, ExternalSessionId)` when the visitor session has one, else by `(AgentId, VisitorSessionId)` as today. New conversations record `Conversation.ExternalSessionId`. As in §7.2, the value comes from the validated visitor token, never from the request body of later calls; a wrong-scope request gets `404`.
+  4. `embed.js` keys its stored visitor token by agent **and** session ID, so a page that switches GUIDs gets a fresh visitor session instead of reusing one bound to the previous chat.
+- Everything else is unchanged: the per-conversation turn lock (two tabs on one chat), streaming, rate limits (session creation is already per-IP limited), origin checks, retention, and the owner transcript view.
+- **Schema** (additive migration): nullable `ExternalSessionId uniqueidentifier` on `VisitorSession` and `Conversation`; index `IX_Conversation_Agent_ExternalSession (AgentId, ExternalSessionId) WHERE ExternalSessionId IS NOT NULL`; `Agent.AllowExternalSessionId`.
+
 ### 7.3 Signed identity mode (for authenticated hosts like Engager)
 
 - The owner generates an **embed signing key** on the agent's Embed tab. It's a 256-bit random value shown **once**, stored encrypted (`AgentEmbedKey` + `Secret`), with two active keys allowed for rotation.
@@ -947,6 +974,7 @@ The in-memory limiters are fine on a single instance; scale-out requires a SQL- 
 | V15 | Engager: the widget appears on Engager (localhost:7293 and staging) for signed-in users, chat streams, and in M12 signed identity shows history across browsers for the same Engager user, and a different user can't see it. | Manual + E2E |
 | V0 | Pre-launch controls: allowlist refusal with no user created; dev sign-in succeeds with the right secret, fails with a wrong one (same timing path), returns 404 in Production or without the secret, rejects a secret sent in the query string, is rate limited, and the banner shows when enabled. | Integration |
 | V16 | Iteration bound: a fake model that always calls a tool stops after 8 iterations with `error iteration_limit`. | Integration |
+| V17 | Developer session IDs: two visitor sessions (separate browsers) with the same `data-session-id` see the same history and can continue the same conversation; a different GUID or no GUID sees none of it; the same GUID on another agent is isolated; malformed or empty IDs get `400`; with the agent setting off the ID is rejected; the GUID never appears in the iframe URL or logs. | Integration + E2E |
 
 ---
 
@@ -1043,7 +1071,15 @@ Each milestone is merged separately, with `dotnet build` + `dotnet test` green. 
 
 ### M10: Tool confirmation
 - Approvals end to end (park and resume), the widget approval card, expiry, and the parallel-execution cap.
-- **AC**: V9.
+- Developer session IDs (§7.2.1): the optional `data-session-id` embed attribute, `VisitorSession`/`Conversation.ExternalSessionId`, the agent setting, and the Embed tab snippet and warning.
+- **AC**: V9 and V17.
+
+**As built (M10):**
+- Schema `0009_approvals_session_ids.sql`: `ToolExecution` gains `ExpiresUtc`, `ResultContent`, `ResultIsError` and a filtered pending index; `VisitorSession`/`Conversation.ExternalSessionId`; `Agent.AllowExternalSessionId` (default on).
+- Confirmation tools create a `PendingApproval` row (15 min expiry) and the turn parks: `approval.required {toolExecutionId, name, summary, expiresUtc}` then `message.completed {stopReason:"awaiting_approval"}`. `POST /conversations/{id}/approvals/{toolExecutionId}` `{approve}` streams the resumed turn (`approval.decided`, `tool.*`, then the model continues). Tool results are assembled into one `tool_result` user message in `tool_use` order once nothing is pending. Deny/expiry give `is_error` results ("The user declined this action." / "The approval request expired."). Re-approving returns 200 `{code:"already_decided"}`; another session gets 404; a new user message while approvals are pending returns 409 `approval_pending` (expired ones are settled first). Approved runs re-validate schema and re-check the connection.
+- Read-only tools run in parallel (cap 4, per-tool DI scope); 10 calls per turn still applies.
+- Session IDs: `data-session-id` GUID -> `sessionId` in session creation (400 `invalid_session_id` / `session_id_not_allowed`); conversations are shared across sessions with the same GUID within one agent. Edit page toggle and Embed snippet with a "treat like a password" warning. The GUID is not placed in iframe URLs.
+- Messages endpoint returns `{messages, pendingApprovals}` so the widget re-renders approval cards.
 
 ### M11: Custom HTTP tools
 - HTTP connection kind, the form builder plus advanced JSON, validation, the test panel, response projection, agent attachment, and confirmation defaults.

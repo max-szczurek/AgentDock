@@ -9,7 +9,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AgentDock.Web.Widget;
 
-public sealed record SessionRequest(string? HostOrigin);
+public sealed record SessionRequest(string? HostOrigin, string? SessionId = null);
+public sealed record ApprovalBody(bool Approve);
 public sealed record TurnBody(string? Text, string? Model);
 
 public static class WidgetEndpoints
@@ -35,6 +36,7 @@ public static class WidgetEndpoints
         api.MapGet("/conversations/{id:guid}/messages", MessagesAsync);
         api.MapPost("/conversations/{id:guid}/turns", TurnAsync);
         api.MapPost("/conversations/{id:guid}/cancel", CancelAsync);
+        api.MapPost("/conversations/{id:guid}/approvals/{toolExecutionId:guid}", ApprovalAsync);
     }
 
     private static IResult ErrorJson(int status, string code, string message) =>
@@ -117,7 +119,17 @@ public static class WidgetEndpoints
             || !agent.Origins.Any(o => o.Origin == host))
             return ErrorJson(403, "origin_not_allowed", "This site is not allowed to embed the assistant.");
 
-        var issued = await sessions.CreateAsync(agent, "Public", host, ip, ct);
+        Guid? externalSessionId = null;
+        if (!string.IsNullOrWhiteSpace(body?.SessionId))
+        {
+            if (!Guid.TryParseExact(body.SessionId.Trim(), "D", out var sid) || sid == Guid.Empty)
+                return ErrorJson(400, "invalid_session_id", "The session id must be a GUID.");
+            if (!agent.AllowExternalSessionId)
+                return ErrorJson(400, "session_id_not_allowed", "This assistant does not accept session ids.");
+            externalSessionId = sid;
+        }
+
+        var issued = await sessions.CreateAsync(agent, "Public", host, ip, externalSessionId, ct);
         return Results.Json(new { token = issued.Token, expiresUtc = issued.Session.ExpiresUtc }, Json);
     }
 
@@ -130,11 +142,11 @@ public static class WidgetEndpoints
         return Results.Json(new { id = c.Id }, Json, statusCode: 201);
     }
 
-    private static async Task<IResult> MessagesAsync(Guid id, HttpContext ctx, IConversationService conversations, CancellationToken ct)
+    private static async Task<IResult> MessagesAsync(Guid id, HttpContext ctx, IConversationService conversations, AgentDock.Core.Mcp.IApprovalService approvals, CancellationToken ct)
     {
         var c = await conversations.GetOwnedAsync(ctx.Session(), id, ct);
         if (c == null) return Results.NotFound();
-        return Results.Json(new { messages = await conversations.MessagesAsync(c, ct) }, Json);
+        return Results.Json(new { messages = await conversations.MessagesAsync(c, ct), pendingApprovals = await approvals.PendingAsync(c, ct) }, Json);
     }
 
     private static async Task<IResult> CancelAsync(Guid id, HttpContext ctx, IConversationService conversations, ActiveTurnRegistry registry, CancellationToken ct)
@@ -158,7 +170,27 @@ public static class WidgetEndpoints
         var prepared = await turns.PrepareAsync(new TurnRequest(agent, session, conversation, body?.Text ?? "", body?.Model, ip), ct);
         if (prepared.Rejection is { } rej) return ErrorJson(rej.Status, rej.Code, rej.Message);
 
-        var handle = prepared.Handle!;
+        return await StreamAsync(prepared.Handle!, ctx);
+    }
+
+    private static async Task<IResult> ApprovalAsync(
+        Guid id, Guid toolExecutionId, ApprovalBody body, HttpContext ctx, IConversationService conversations, IChatTurnService turns,
+        AgentDockDbContext db, CancellationToken ct)
+    {
+        var session = ctx.Session();
+        var conversation = await conversations.GetOwnedAsync(session, id, ct);
+        if (conversation == null) return Results.NotFound();
+        var agent = await db.Agents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == session.AgentId && a.DeletedUtc == null, ct);
+        if (agent == null) return Results.NotFound();
+
+        var prepared = await turns.PrepareApprovalAsync(new TurnRequest(agent, session, conversation, "", null, ctx.Connection.RemoteIpAddress?.ToString()), toolExecutionId, body?.Approve ?? false, ct);
+        if (prepared.Rejection is { } rej)
+            return rej.Code == "already_decided" ? Results.Json(new { status = rej.Message, code = rej.Code }, Json) : ErrorJson(rej.Status, rej.Code, rej.Message);
+        return await StreamAsync(prepared.Handle!, ctx);
+    }
+
+    private static async Task<IResult> StreamAsync(TurnHandle handle, HttpContext ctx)
+    {
         ctx.RequestAborted.Register(handle.Cancel);
         var res = ctx.Response;
         res.StatusCode = 200;

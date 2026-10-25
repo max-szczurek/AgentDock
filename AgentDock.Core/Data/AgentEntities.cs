@@ -17,6 +17,7 @@ public class Agent
     public string WebSearchDomainMode { get; set; } = "None";
     public string? WebSearchDomainsJson { get; set; }
     public string IdentityMode { get; set; } = "Public";
+    public bool AllowExternalSessionId { get; set; } = true;
     public string AppearanceJson { get; set; } = "{}";
     public string? LimitsJson { get; set; }
     public string Status { get; set; } = "Disabled";

@@ -4,6 +4,7 @@ using AgentDock.Core.Data;
 using AgentDock.Core.Mcp;
 using AgentDock.Core.Models;
 using AgentDock.Core.Services;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace AgentDock.Core.Runtime;
@@ -39,7 +40,11 @@ public sealed class ActiveTurnRegistry
 public interface IChatTurnService
 {
     Task<PrepareResult> PrepareAsync(TurnRequest request, CancellationToken ct);
+    /// <summary>Decides a pending tool approval and, once every approval of the paused turn is decided, resumes the model loop.</summary>
+    Task<PrepareResult> PrepareApprovalAsync(TurnRequest request, Guid toolExecutionId, bool approve, CancellationToken ct);
 }
+
+public sealed record ResumeInfo(ClaimResult Claim);
 
 public sealed class ChatTurnService(
     IClaudeGateway gateway,
@@ -50,12 +55,15 @@ public sealed class ChatTurnService(
     SlidingWindowLimiter limiter,
     IToolRegistryFactory toolRegistries,
     IToolExecutor toolExecutor,
+    IApprovalService approvals,
+    IServiceScopeFactory scopes,
     ActiveTurnRegistry registry,
     TimeProvider time,
     ILogger<ChatTurnService> logger) : IChatTurnService
 {
     public const int MaxIterations = 8;
     public const int MaxToolCallsPerTurn = 10;
+    public const int MaxParallelTools = 4;
     public static readonly TimeSpan TurnDeadline = TimeSpan.FromSeconds(120);
 
     public async Task<PrepareResult> PrepareAsync(TurnRequest r, CancellationToken ct)
@@ -76,6 +84,9 @@ public sealed class ChatTurnService(
         var ok = false;
         try
         {
+            if (await approvals.SettleExpiredAsync(r.Conversation, ct))
+                return Reject(409, "approval_pending", "Please approve or deny the pending action first.");
+
             var ip = r.ClientIp ?? "unknown";
             if (!limiter.TryAcquire($"s:{r.Session.Id}", limits.TurnsPerSessionPerHour, TimeSpan.FromHours(1))
                 || !limiter.TryAcquire($"i:{r.Agent.Id}:{ip}", limits.TurnsPerIpPerHour, TimeSpan.FromHours(1)))
@@ -98,7 +109,7 @@ public sealed class ChatTurnService(
                 ContentJson = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }).ToJsonString(),
             }, ct);
 
-            var channel = Channel.CreateUnbounded<WidgetEvent>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+            var channel = Channel.CreateUnbounded<WidgetEvent>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
             var cts = new CancellationTokenSource();
             var handle = new TurnHandle(turnId, channel.Reader, cts);
             registry.Add(r.Conversation.Id, handle);
@@ -112,12 +123,49 @@ public sealed class ChatTurnService(
         }
     }
 
+    public async Task<PrepareResult> PrepareApprovalAsync(TurnRequest r, Guid toolExecutionId, bool approve, CancellationToken ct)
+    {
+        if (r.Agent.Status != "Enabled" && r.Session.Mode != "Preview") return Reject(404, "agent_unavailable", "This assistant is not available.");
+        var row = await approvals.FindAsync(r.Conversation, toolExecutionId, ct);
+        if (row == null) return Reject(404, "not_found", "Not found.");
+        if (row.Status != "PendingApproval") return Reject(200, "already_decided", row.Status);
+
+        var key = await credentials.RevealActiveKeyAsync(r.Agent.AccountId, ct);
+        if (key == null) return Reject(503, "agent_unavailable", "This assistant is temporarily unavailable.");
+
+        var turnId = row.TurnId;
+        if (!await conversations.TryBeginTurnAsync(r.Conversation, turnId, TurnDeadline + TimeSpan.FromSeconds(30), ct))
+            return Reject(409, "turn_in_progress", "Another action is in progress. Please try again in a moment.");
+
+        var ok = false;
+        try
+        {
+            var model = await ResolveModelAsync(r.Agent, null, forceRefresh: false, ct);
+            if (model == null) return Reject(503, "agent_unavailable", "This assistant is temporarily unavailable.");
+            var claim = await approvals.ClaimAsync(r.Conversation, toolExecutionId, approve, ct);
+            if (claim.Kind == ClaimKind.NotFound) return Reject(404, "not_found", "Not found.");
+            if (claim.Kind == ClaimKind.AlreadyDecided) return Reject(200, "already_decided", claim.CurrentStatus ?? "");
+
+            var channel = Channel.CreateUnbounded<WidgetEvent>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+            var cts = new CancellationTokenSource();
+            var handle = new TurnHandle(turnId, channel.Reader, cts);
+            registry.Add(r.Conversation.Id, handle);
+            ok = true;
+            handle.Completion = Task.Run(() => ExecuteAsync(r, key, model, turnId, channel.Writer, cts, handle, new ResumeInfo(claim)), CancellationToken.None);
+            return new PrepareResult(null, handle);
+        }
+        finally
+        {
+            if (!ok) await conversations.EndTurnAsync(r.Conversation, turnId, CancellationToken.None);
+        }
+    }
+
     private static PrepareResult Reject(int status, string code, string message) =>
         new(new TurnRejection(status, code, message), null);
 
     private async Task ExecuteAsync(
         TurnRequest r, string apiKey, ResolvedModel model, Guid turnId,
-        ChannelWriter<WidgetEvent> output, CancellationTokenSource cts, TurnHandle handle)
+        ChannelWriter<WidgetEvent> output, CancellationTokenSource cts, TurnHandle handle, ResumeInfo? resume = null)
     {
         using var deadline = new CancellationTokenSource(TurnDeadline);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, deadline.Token);
@@ -127,7 +175,7 @@ public sealed class ChatTurnService(
         long inTok = 0, outTok = 0;
         int searches = 0, toolCalls = 0;
 
-        void Emit(string name, JsonObject data) => output.TryWrite(new WidgetEvent(name, data));
+        void Emit(string name, JsonObject data) { lock (output) output.TryWrite(new WidgetEvent(name, data)); }
 
         try
         {
@@ -143,6 +191,29 @@ public sealed class ChatTurnService(
                 skillFiles.Select(f => new SkillText(f.DisplayName, f.FileName, f.Version, f.Content)).ToList(), time.GetUtcNow());
             var toolRegistry = await toolRegistries.BuildAsync(r.Agent.AccountId, r.Agent.Id, CancellationToken.None);
             var toolCtx = new ToolCallContext(r.Agent.AccountId, r.Agent.Id, r.Conversation.Id, turnId);
+            if (resume != null)
+            {
+                var row = resume.Claim.Row!;
+                if (resume.Claim.Kind == ClaimKind.Approved)
+                {
+                    var shown = toolRegistry.TryGet(row.ExposedName, out var approvedTool) ? approvedTool.DisplayName : "tool";
+                    Emit("tool.started", new JsonObject { ["name"] = shown });
+                    toolCalls++;
+                    var outcome = await toolExecutor.RunApprovedAsync(toolCtx, toolRegistry, row.Id, ct);
+                    if (outcome.IsError) Emit("tool.failed", new JsonObject { ["name"] = shown, ["message"] = outcome.PublicError ?? "The tool call failed." });
+                    else Emit("tool.completed", new JsonObject { ["name"] = shown });
+                }
+                else
+                {
+                    Emit("approval.decided", new JsonObject { ["toolExecutionId"] = row.Id, ["status"] = resume.Claim.Kind == ClaimKind.Expired ? "Expired" : "Denied" });
+                }
+                if (!await approvals.TryAssembleAsync(r.Conversation, CancellationToken.None))
+                {
+                    Emit("message.completed", new JsonObject { ["stopReason"] = "awaiting_approval" });
+                    return;
+                }
+            }
+
             var retriedModel = false;
             var citations = new CitationRegistry();
             var emittedSources = 0;
@@ -198,27 +269,52 @@ public sealed class ChatTurnService(
                 var toolUses = acc.ClientToolUses();
                 if (acc.StopReason == "tool_use" && toolUses.Count > 0)
                 {
-                    var results = new JsonArray();
-                    foreach (var t in toolUses)
+                    var outcomes = new ToolOutcome?[toolUses.Count];
+                    using var gate = new SemaphoreSlim(MaxParallelTools);
+                    await Task.WhenAll(toolUses.Select(async (t, i) =>
                     {
-                        var useId = t["id"]?.GetValue<string>() ?? "";
                         var toolName = t["name"]?.GetValue<string>() ?? "";
-                        if (++toolCalls > MaxToolCallsPerTurn)
+                        if (Interlocked.Increment(ref toolCalls) > MaxToolCallsPerTurn)
                         {
-                            results.Add(new JsonObject { ["type"] = "tool_result", ["tool_use_id"] = useId, ["content"] = "Too many tool calls in this turn.", ["is_error"] = true });
-                            continue;
+                            outcomes[i] = new ToolOutcome(toolName, true, "Too many tool calls in this turn.", "Blocked", "Too many tool calls in this turn.");
+                            return;
                         }
                         var known = toolRegistry.TryGet(toolName, out var rt);
                         var shown = known ? rt.DisplayName : "tool";
-                        if (known) Emit("tool.started", new JsonObject { ["name"] = shown });
-                        var outcome = await toolExecutor.ExecuteAsync(toolCtx, toolRegistry, useId, toolName, t["input"]?.DeepClone(), ct);
-                        if (known)
+                        await gate.WaitAsync(ct);
+                        try
                         {
-                            if (outcome.IsError) Emit("tool.failed", new JsonObject { ["name"] = shown, ["message"] = outcome.PublicError ?? "The tool call failed." });
-                            else Emit("tool.completed", new JsonObject { ["name"] = shown });
+                            if (known && !rt.RequiresConfirmation) Emit("tool.started", new JsonObject { ["name"] = shown });
+                            await using var scope = scopes.CreateAsyncScope();
+                            var executor = scope.ServiceProvider.GetRequiredService<IToolExecutor>();
+                            var outcome = await executor.ExecuteAsync(toolCtx, toolRegistry, t["id"]?.GetValue<string>() ?? "", toolName, t["input"]?.DeepClone(), ct);
+                            outcomes[i] = outcome;
+                            if (known && !outcome.IsPending)
+                            {
+                                if (outcome.IsError) Emit("tool.failed", new JsonObject { ["name"] = shown, ["message"] = outcome.PublicError ?? "The tool call failed." });
+                                else Emit("tool.completed", new JsonObject { ["name"] = shown });
+                            }
                         }
-                        results.Add(new JsonObject { ["type"] = "tool_result", ["tool_use_id"] = useId, ["content"] = outcome.Content, ["is_error"] = outcome.IsError });
+                        finally { gate.Release(); }
+                    }));
+
+                    if (outcomes.Any(o => o!.IsPending))
+                    {
+                        await approvals.ParkAsync(toolCtx, toolUses.Select((t, i) => new ParkedResult(t["id"]?.GetValue<string>() ?? "", t["name"]?.GetValue<string>() ?? "", outcomes[i]!)).ToList(), CancellationToken.None);
+                        foreach (var o in outcomes.Where(o => o!.IsPending))
+                            Emit("approval.required", new JsonObject
+                            {
+                                ["toolExecutionId"] = o!.ExecutionId, ["name"] = o.DisplayName, ["summary"] = o.ApprovalSummary ?? "", ["expiresUtc"] = o.ApprovalExpiresUtc,
+                            });
+                        Emit("message.completed", new JsonObject { ["messageId"] = msg.Id, ["stopReason"] = "awaiting_approval" });
+                        return;
                     }
+
+                    var results = new JsonArray(toolUses.Select((t, i) => (JsonNode?)new JsonObject
+                    {
+                        ["type"] = "tool_result", ["tool_use_id"] = t["id"]?.GetValue<string>(),
+                        ["content"] = outcomes[i]!.Content, ["is_error"] = outcomes[i]!.IsError,
+                    }).ToArray());
                     await conversations.AppendAsync(r.Conversation, new ConversationMessage
                     {
                         TurnId = turnId, Role = "user", ContentJson = results.ToJsonString(),

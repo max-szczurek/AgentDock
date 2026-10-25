@@ -80,4 +80,7 @@ public class ToolExecution
     public DateTime? DecidedUtc { get; set; }
     public DateTime? StartedUtc { get; set; }
     public DateTime? CompletedUtc { get; set; }
+    public DateTime? ExpiresUtc { get; set; }
+    public string? ResultContent { get; set; }
+    public bool? ResultIsError { get; set; }
 }

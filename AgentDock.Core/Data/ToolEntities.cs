@@ -84,3 +84,28 @@ public class ToolExecution
     public string? ResultContent { get; set; }
     public bool? ResultIsError { get; set; }
 }
+
+public class HttpTool
+{
+    public Guid Id { get; set; } = Guid.CreateVersion7();
+    public Guid AccountId { get; set; }
+    public string Name { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string InputSchemaJson { get; set; } = "{}";
+    public string ExecutionConfigJson { get; set; } = "{}";
+    public Guid ConnectionId { get; set; }
+    public int Version { get; set; } = 1;
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime? DeletedUtc { get; set; }
+}
+
+public class AgentHttpTool
+{
+    public Guid AccountId { get; set; }
+    public Guid AgentId { get; set; }
+    public Guid HttpToolId { get; set; }
+    public bool RequiresConfirmation { get; set; } = true;
+    public bool Enabled { get; set; } = true;
+}

@@ -89,6 +89,11 @@ public class EditModel(IConnectionService connections, ICurrentAccountAccessor a
         if (account == null) return Forbid();
         var r = await connections.DeleteAsync(account.Id, id, removeFromAll, ct);
         if (!r.Found) return NotFound();
+        if (!r.Deleted && r.HttpTools is { Count: > 0 })
+        {
+            Message = "Used by HTTP tools: " + string.Join(", ", r.HttpTools) + ". Delete or change those tools first.";
+            return RedirectToPage(new { id });
+        }
         if (!r.Deleted)
         {
             Message = "Still used by: " + string.Join(", ", r.BlockedBy) + ". Tick 'Remove from all agents' to delete anyway.";

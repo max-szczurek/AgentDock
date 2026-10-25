@@ -2,13 +2,15 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using AgentDock.Core.Data;
+using AgentDock.Core.HttpTools;
 using Microsoft.EntityFrameworkCore;
 
 namespace AgentDock.Core.Mcp;
 
 public sealed record RegisteredTool(
     string ExposedName, string DisplayName, string Description, JsonObject InputSchema, string InputSchemaJson,
-    Guid ConnectionId, string ConnectionName, Guid AgentConnectionId, string UpstreamName, bool RequiresConfirmation, string Kind = "Mcp");
+    Guid ConnectionId, string ConnectionName, Guid AgentConnectionId, string UpstreamName, bool RequiresConfirmation, string Kind = "Mcp",
+    Guid? HttpToolId = null, HttpToolExecution? Http = null);
 
 /// <summary>Per-turn tool set built only from DB allowlists. Anything not in here is unknown to the model and blocked at call time.</summary>
 public sealed class TurnToolRegistry
@@ -81,6 +83,27 @@ public sealed class ToolRegistryFactory(AgentDockDbContext db) : IToolRegistryFa
             if (description.Length > MaxDescriptionChars) description = description[..MaxDescriptionChars];
             tools[exposed] = new RegisteredTool(exposed, string.IsNullOrWhiteSpace(r.Title) ? r.ToolName : r.Title!, description, schema, schema.ToJsonString(),
                 r.ConnId, r.ConnName, r.Id, r.ToolName, r.RequiresConfirmation);
+        }
+
+        var httpRows = await (from a in db.AgentHttpTools.AsNoTracking()
+                              join t in db.HttpTools.AsNoTracking() on a.HttpToolId equals t.Id
+                              join c in db.Connections.AsNoTracking() on t.ConnectionId equals c.Id
+                              where a.AccountId == accountId && a.AgentId == agentId && a.Enabled
+                                    && t.AccountId == accountId && t.DeletedUtc == null
+                                    && c.AccountId == accountId && c.DeletedUtc == null && c.Kind == "Http"
+                              select new { a.RequiresConfirmation, Tool = t, ConnName = c.Name })
+                             .ToListAsync(ct);
+        foreach (var r in httpRows.OrderBy(r => r.Tool.Name, StringComparer.Ordinal))
+        {
+            var t = r.Tool;
+            var exposed = ExposedName("http", t.Name);
+            if (tools.ContainsKey(exposed)) { warnings.Add($"Duplicate tool name '{exposed}' was dropped."); continue; }
+            if (!HttpToolRules.TryParseExecution(t.ExecutionConfigJson, out var exec) || JsonNode.Parse(t.InputSchemaJson) is not JsonObject schema)
+            { warnings.Add($"HTTP tool '{t.Name}' has an invalid configuration and is disabled."); continue; }
+            if (schema["type"] == null) schema["type"] = "object";
+            var description = t.Description.Length > MaxDescriptionChars ? t.Description[..MaxDescriptionChars] : t.Description;
+            tools[exposed] = new RegisteredTool(exposed, t.DisplayName, description, schema, schema.ToJsonString(),
+                t.ConnectionId, r.ConnName, Guid.Empty, t.Name, r.RequiresConfirmation, "Http", t.Id, exec);
         }
         return new TurnToolRegistry(tools.Values, warnings);
     }

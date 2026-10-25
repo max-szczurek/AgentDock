@@ -155,6 +155,9 @@ public sealed partial class AgentService(AgentDockDbContext db, TimeProvider tim
             foreach (var t in tools)
                 db.AgentMcpTools.Add(new AgentMcpTool { AccountId = accountId, AgentConnectionId = nc.Id, ToolName = t.ToolName, RequiresConfirmation = t.RequiresConfirmation, ApprovedSchemaHash = t.ApprovedSchemaHash });
         }
+        var httpLinks = await db.AgentHttpTools.AsNoTracking().Where(a => a.AgentId == agentId && a.AccountId == accountId).ToListAsync(ct);
+        foreach (var h in httpLinks)
+            db.AgentHttpTools.Add(new AgentHttpTool { AccountId = accountId, AgentId = copy.Id, HttpToolId = h.HttpToolId, Enabled = h.Enabled, RequiresConfirmation = h.RequiresConfirmation });
         await db.SaveChangesAsync(ct);
         return copy;
     }

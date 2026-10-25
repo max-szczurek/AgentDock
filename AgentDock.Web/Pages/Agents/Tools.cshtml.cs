@@ -1,3 +1,4 @@
+using AgentDock.Core.HttpTools;
 using AgentDock.Core.Mcp;
 using AgentDock.Core.Services;
 using AgentDock.Web.Services;
@@ -6,7 +7,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace AgentDock.Web.Pages.Agents;
 
-public class ToolsModel(IAgentService agents, IAgentToolService tools, ICurrentAccountAccessor accounts) : PageModel
+public class ToolsModel(IAgentService agents, IAgentToolService tools, IHttpToolService httpTools, ICurrentAccountAccessor accounts) : PageModel
 {
     public class ToolRow { public string Name { get; set; } = ""; public bool Allowed { get; set; } public bool Confirm { get; set; } }
     public class ConnectionRow
@@ -18,7 +19,11 @@ public class ToolsModel(IAgentService agents, IAgentToolService tools, ICurrentA
         public List<ToolRow> Tools { get; set; } = [];
     }
 
+    public class HttpRow { public Guid HttpToolId { get; set; } public bool Assigned { get; set; } public bool Enabled { get; set; } public bool Confirm { get; set; } }
+
     [BindProperty] public List<ConnectionRow> Rows { get; set; } = [];
+    [BindProperty] public List<HttpRow> HttpRows { get; set; } = [];
+    public IReadOnlyList<HttpToolAssignmentView> HttpItems { get; private set; } = [];
     public Guid AgentId { get; private set; }
     public string AgentName { get; private set; } = "";
     public IReadOnlyList<ConnectionAssignmentView> Items { get; private set; } = [];
@@ -40,7 +45,10 @@ public class ToolsModel(IAgentService agents, IAgentToolService tools, ICurrentA
         var input = Rows.Where(r => r.Assigned).Select(r => new ConnectionAssignmentInput(
             r.ConnectionId, (r.Alias ?? "").Trim(), r.Enabled,
             r.Tools.Where(t => t.Allowed).Select(t => new ToolSelection(t.Name, t.Confirm)).ToList())).ToList();
-        var errors = await tools.SaveAsync(account.Id, id, input, ct);
+        var errors = (await tools.SaveAsync(account.Id, id, input, ct)).ToList();
+        if (errors.Count == 0)
+            errors.AddRange(await httpTools.SaveAssignmentsAsync(account.Id, id,
+                HttpRows.Where(r => r.Assigned).Select(r => new HttpToolAssignmentInput(r.HttpToolId, r.Enabled, r.Confirm)).ToList(), ct));
         if (errors.Count == 0) { Message = "Tools saved."; return RedirectToPage(new { id }); }
         await LoadAsync(account.Id, id, ct);
         Errors = errors;
@@ -53,6 +61,7 @@ public class ToolsModel(IAgentService agents, IAgentToolService tools, ICurrentA
         if (agent == null) return false;
         AgentId = id; AgentName = agent.Name;
         Items = await tools.GetAsync(accountId, id, ct);
+        HttpItems = await httpTools.GetAssignmentsAsync(accountId, id, ct);
         return true;
     }
 }

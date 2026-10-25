@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentDock.Core.Data;
+using AgentDock.Core.HttpTools;
 using Json.Schema;
 using Microsoft.EntityFrameworkCore;
 
@@ -40,7 +41,7 @@ public static class ApprovalText
     }
 }
 
-public sealed class ToolExecutor(AgentDockDbContext db, IConnectionService connections, IMcpGateway gateway, TimeProvider time) : IToolExecutor
+public sealed class ToolExecutor(AgentDockDbContext db, IConnectionService connections, IMcpGateway gateway, IHttpToolRunner httpRunner, TimeProvider time) : IToolExecutor
 {
     public const int MaxResultChars = 16_000;
     public const int MaxInputJsonChars = 32 * 1024;
@@ -64,7 +65,7 @@ public sealed class ToolExecutor(AgentDockDbContext db, IConnectionService conne
             row.Kind = "Unknown";
             return await BlockAsync(row, name, "not_available", "Tool not available.", keepContent: false);
         }
-        row.Kind = tool.Kind; row.ConnectionId = tool.ConnectionId; row.UpstreamToolName = tool.UpstreamName;
+        row.Kind = tool.Kind; row.ConnectionId = tool.ConnectionId; row.UpstreamToolName = tool.UpstreamName; row.HttpToolId = tool.HttpToolId;
 
         if (input != null && input is not JsonObject)
             return await BlockAsync(row, tool.DisplayName, "invalid_input", "Tool input must be a JSON object.", keepContent: false);
@@ -116,8 +117,12 @@ public sealed class ToolExecutor(AgentDockDbContext db, IConnectionService conne
 
     private async Task<ToolOutcome> RunAsync(ToolCallContext ctx, RegisteredTool tool, ToolExecution row, JsonObject args, bool isNew, bool keepContent, CancellationToken ct)
     {
-        var stillEnabled = await db.AgentConnections.AsNoTracking().AnyAsync(ac => ac.Id == tool.AgentConnectionId && ac.AccountId == ctx.AccountId && ac.AgentId == ctx.AgentId && ac.Enabled, ct)
-            && await db.Connections.AsNoTracking().AnyAsync(c => c.Id == tool.ConnectionId && c.AccountId == ctx.AccountId && c.DeletedUtc == null, ct);
+        var stillEnabled = tool.HttpToolId is { } httpId
+            ? await db.AgentHttpTools.AsNoTracking().AnyAsync(a => a.HttpToolId == httpId && a.AccountId == ctx.AccountId && a.AgentId == ctx.AgentId && a.Enabled, ct)
+              && await db.HttpTools.AsNoTracking().AnyAsync(t => t.Id == httpId && t.AccountId == ctx.AccountId && t.DeletedUtc == null && t.ConnectionId == tool.ConnectionId, ct)
+              && await db.Connections.AsNoTracking().AnyAsync(c => c.Id == tool.ConnectionId && c.AccountId == ctx.AccountId && c.DeletedUtc == null, ct)
+            : await db.AgentConnections.AsNoTracking().AnyAsync(ac => ac.Id == tool.AgentConnectionId && ac.AccountId == ctx.AccountId && ac.AgentId == ctx.AgentId && ac.Enabled, ct)
+              && await db.Connections.AsNoTracking().AnyAsync(c => c.Id == tool.ConnectionId && c.AccountId == ctx.AccountId && c.DeletedUtc == null, ct);
         var access = stillEnabled ? await connections.ResolveAccessAsync(ctx.AccountId, tool.ConnectionId, ct) : null;
         if (access == null)
             return await BlockAsync(row, tool.DisplayName, "connection_disabled", "Tool not available.", keepContent);
@@ -125,6 +130,8 @@ public sealed class ToolExecutor(AgentDockDbContext db, IConnectionService conne
         row.Status = "Running"; row.StartedUtc = time.GetUtcNow().UtcDateTime;
         if (isNew) db.ToolExecutions.Add(row);
         await db.SaveChangesAsync(CancellationToken.None);
+
+        if (tool.Http != null) return await RunHttpAsync(tool, row, access, args, keepContent, ct);
 
         var sw = Stopwatch.StartNew();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -151,6 +158,26 @@ public sealed class ToolExecutor(AgentDockDbContext db, IConnectionService conne
             row.Status = timedOut ? "TimedOut" : "Failed";
             row.ErrorCode = err.Code; row.ErrorMessage = err.Message; row.HttpStatus = err.HttpStatus;
             return await FinishAsync(row, sw, new ToolOutcome(tool.DisplayName, true, "The tool call failed: " + err.Message, row.Status, err.Message, row.Id), keepContent);
+        }
+        catch (OperationCanceledException)
+        {
+            row.Status = "Failed"; row.ErrorCode = "cancelled"; row.ErrorMessage = "Cancelled.";
+            await FinishAsync(row, sw, new ToolOutcome(tool.DisplayName, true, "Cancelled.", "Failed", "Cancelled.", row.Id), keepContent);
+            throw;
+        }
+    }
+
+    private async Task<ToolOutcome> RunHttpAsync(RegisteredTool tool, ToolExecution row, ConnectionAccess access, JsonObject args, bool keepContent, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var res = await httpRunner.RunAsync(access, tool.Http!, args, ct);
+            row.HttpStatus = res.HttpStatus; row.ResultBytes = res.Bytes;
+            var text = res.Content.Length > MaxResultChars ? res.Content[..MaxResultChars] + $"\n[truncated {res.Content.Length - MaxResultChars} characters]" : res.Content;
+            row.ResultPreview = text.Length > MaxPreviewChars ? text[..MaxPreviewChars] : text;
+            row.Status = res.Status; row.ErrorCode = res.ErrorCode; row.ErrorMessage = res.ErrorMessage;
+            return await FinishAsync(row, sw, new ToolOutcome(tool.DisplayName, res.IsError, text, res.Status, res.ErrorMessage, row.Id), keepContent);
         }
         catch (OperationCanceledException)
         {

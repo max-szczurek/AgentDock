@@ -1,0 +1,118 @@
+@page "/HttpTools/Edit/{id:guid?}"
+@model AgentDock.Web.Pages.HttpTools.EditModel
+@using AgentDock.Core.HttpTools
+@{
+    ViewData["Title"] = Model.ToolId == null ? "New HTTP tool" : "Edit HTTP tool";
+    var rows = Model.Input.Parameters.Concat(Enumerable.Range(0, Model.Input.Parameters.Count == 0 ? 6 : AgentDock.Web.Pages.HttpTools.EditModel.BlankRows).Select(_ => new HttpToolFormParameter())).ToList();
+}
+<div class="row-between">
+    <h1>@(Model.ToolId == null ? "New HTTP tool" : Model.Input.DisplayName) @if (Model.ToolId != null) { <span class="muted">v@(Model.Version)</span> }</h1>
+    <a href="/HttpTools">Back to HTTP tools</a>
+</div>
+@if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice" id="http-tool-message">@Model.Message</p> }
+@foreach (var e in Model.Errors) { <p class="error">@e</p> }
+@if (Model.HttpConnections.Count == 0)
+{
+    <p class="muted" id="no-http-connections">You need an HTTP API connection first. <a href="/Connections/Edit">Create one</a>.</p>
+}
+
+<form method="post" id="http-tool-form" class="card wide">
+    <h2>Builder</h2>
+    <label for="Input_Name">Name <span class="muted">(letters, digits, _ and -; the agent sees it as http__name)</span></label>
+    <input id="Input_Name" name="Input.Name" value="@Model.Input.Name" maxlength="64" />
+    <label for="Input_DisplayName">Display name</label>
+    <input id="Input_DisplayName" name="Input.DisplayName" value="@Model.Input.DisplayName" maxlength="100" />
+    <label for="Input_Description">Description <span class="muted">(when should the agent use this tool?)</span></label>
+    <textarea id="Input_Description" name="Input.Description" rows="3" maxlength="2000">@Model.Input.Description</textarea>
+    <label for="Input_ConnectionId">Connection</label>
+    <select id="Input_ConnectionId" name="Input.ConnectionId">
+        @foreach (var c in Model.HttpConnections) { <option value="@c.Id" selected="@(c.Id == Model.Input.ConnectionId)">@c.Name (@c.BaseUrl)</option> }
+    </select>
+    <label for="Input_Method">Method</label>
+    <select id="Input_Method" name="Input.Method">
+        @foreach (var m in HttpToolRules.Methods) { <option value="@m" selected="@(m == Model.Input.Method)">@m</option> }
+    </select>
+    <label for="Input_UrlTemplate">URL template <span class="muted">(relative to the connection, e.g. <code>/v1/orders/{orderId}</code>)</span></label>
+    <input id="Input_UrlTemplate" name="Input.UrlTemplate" value="@Model.Input.UrlTemplate" maxlength="500" class="mono" />
+
+    <label>Parameters <span class="muted">(what the agent can fill in; path parameters are always required)</span></label>
+    <table id="parameters-table">
+        <thead><tr><th>Name</th><th>Where</th><th>Type</th><th>Required</th><th>Description</th><th>Allowed values</th><th>Body path</th></tr></thead>
+        <tbody>
+        @for (var i = 0; i < rows.Count; i++)
+        {
+            var p = rows[i];
+            <tr>
+                <td><input name="Input.Parameters[@i].Name" value="@p.Name" maxlength="64" /></td>
+                <td><select name="Input.Parameters[@i].In">@foreach (var l in HttpToolRules.Locations) { <option value="@l" selected="@(l == p.In)">@l</option> }</select></td>
+                <td><select name="Input.Parameters[@i].Type">@foreach (var t in HttpToolRules.ScalarTypes) { <option value="@t" selected="@(t == p.Type)">@t</option> }</select></td>
+                <td><input type="checkbox" name="Input.Parameters[@i].Required" value="true" @(p.Required ? "checked" : "") /></td>
+                <td><input name="Input.Parameters[@i].Description" value="@p.Description" maxlength="300" /></td>
+                <td><input name="Input.Parameters[@i].EnumValues" value="@p.EnumValues" maxlength="300" placeholder="a, b, c" /></td>
+                <td><input name="Input.Parameters[@i].BodyPath" value="@p.BodyPath" maxlength="200" placeholder="note or customer.name" /></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+
+    <label for="StaticQueryText">Static query <span class="muted">(fixed, non-secret values; one <code>name=value</code> per line)</span></label>
+    <textarea id="StaticQueryText" name="StaticQueryText" rows="2" class="mono">@Model.StaticQueryText</textarea>
+    <label for="SelectText">Response fields to keep <span class="muted">(one per line, e.g. <code>items[*].sku</code>; blank keeps everything)</span></label>
+    <textarea id="SelectText" name="SelectText" rows="3" class="mono">@Model.SelectText</textarea>
+    <label class="check"><input type="checkbox" name="Input.IncludeStatusCode" value="true" @(Model.Input.IncludeStatusCode ? "checked" : "") /> Include the HTTP status in the result</label>
+    <label for="Input_TimeoutSeconds">Timeout seconds (1-60)</label>
+    <input id="Input_TimeoutSeconds" name="Input.TimeoutSeconds" type="number" min="1" max="60" value="@Model.Input.TimeoutSeconds" />
+    <label for="Input_MaxBytes">Max response bytes</label>
+    <input id="Input_MaxBytes" name="Input.MaxBytes" type="number" min="1024" max="1048576" value="@Model.Input.MaxBytes" />
+    <button type="submit" id="save-http-tool">Save</button>
+</form>
+
+<details class="card wide" style="margin-top:24px" id="advanced-panel">
+    <summary><strong>Advanced JSON</strong> <span class="muted">(edits the same tool: input schema + execution config)</span></summary>
+    <form method="post" asp-page-handler="Advanced" id="advanced-form">
+        <input type="hidden" name="Input.Name" value="@Model.Input.Name" />
+        <input type="hidden" name="Input.DisplayName" value="@Model.Input.DisplayName" />
+        <input type="hidden" name="Input.Description" value="@Model.Input.Description" />
+        <input type="hidden" name="Input.ConnectionId" value="@Model.Input.ConnectionId" />
+        <label for="AdvancedText">JSON</label>
+        <textarea id="AdvancedText" name="AdvancedText" rows="22" class="mono" spellcheck="false">@Model.AdvancedText</textarea>
+        <p class="muted">Name, display name, description and connection come from the builder above (save those first for a new tool).</p>
+        <button type="submit" id="save-advanced">Save advanced JSON</button>
+    </form>
+</details>
+
+@if (Model.ToolId != null)
+{
+    <div class="card wide" style="margin-top:24px" id="test-panel">
+        <h2>Test</h2>
+        <p class="muted">Runs the tool exactly as an agent would (same schema check, same guarded outbound client). Nothing is stored.</p>
+        <form method="post" asp-page-handler="Test" id="test-form">
+            <label for="SampleInput">Sample input (JSON)</label>
+            <textarea id="SampleInput" name="SampleInput" rows="6" class="mono" spellcheck="false">@Model.SampleInput</textarea>
+            <button type="submit" id="run-test">Run</button>
+        </form>
+        @if (Model.Test != null)
+        {
+            <div id="test-result" style="margin-top:16px">
+                <p><strong>@(Model.Test.IsError ? "Failed" : "Succeeded")</strong>
+                    @if (Model.Test.HttpStatus != null) { <span>HTTP <span id="test-status">@Model.Test.HttpStatus</span></span> }
+                    <span class="muted">@Model.Test.DurationMs ms</span></p>
+                @if (!string.IsNullOrEmpty(Model.Test.RequestUrl)) { <p class="muted">Request: <code id="test-url">@Model.Test.RequestUrl</code></p> }
+                @if (Model.Test.Error != null) { <p class="error" id="test-error">@Model.Test.Error</p> }
+                @if (!string.IsNullOrEmpty(Model.Test.Output)) { <pre id="test-output">@Model.Test.Output</pre> }
+            </div>
+        }
+    </div>
+
+    <div class="card wide" style="margin-top:24px">
+        <h2>Delete</h2>
+        <form method="post" asp-page-handler="Delete" onsubmit="return confirm('Delete this HTTP tool?');">
+            @if (Model.UsedBy > 0)
+            {
+                <p class="muted">Used by @Model.UsedBy agent@(Model.UsedBy == 1 ? "" : "s").</p>
+                <label><input type="checkbox" name="removeFromAll" value="true" id="remove-from-all" /> Remove from all agents and delete</label>
+            }
+            <button type="submit" class="danger" id="delete-http-tool">Delete tool</button>
+        </form>
+    </div>
+}

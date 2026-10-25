@@ -39,3 +39,7 @@ Configuration uses flat env/app-setting names: `AGENTDOCK_SQL_CONNECTION_STRING`
 ## Approvals and session IDs (M10)
 - Confirmation tools park in `ToolExecution` (`PendingApproval`, 15 min expiry); `ApprovalService` claims/settles/assembles; resume via `ChatTurnService.PrepareApprovalAsync`. Expired = denied.
 - Developer session IDs: optional `data-session-id` GUID, stored as `ExternalSessionId`, scoped per agent, bearer-secret semantics; never log it.
+
+## HTTP tools (M11)
+- A `Connection` has `Kind` `Mcp` or `Http` (fixed at creation). `HttpTool` = model-facing `InputSchemaJson` + server-side `ExecutionConfigJson`; the connection holds URL and credentials. Exposed to the model as `http__{name}`.
+- Runtime lives in `AgentDock.Core/HttpTools` (`HttpToolRules`, `HttpToolRunner`, `HttpToolService`); `ToolExecutor` dispatches on `RegisteredTool.Http`. Never put credentials in static query, headers or the schema.

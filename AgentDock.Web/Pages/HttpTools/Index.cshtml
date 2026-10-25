@@ -1,0 +1,29 @@
+@page
+@model AgentDock.Web.Pages.HttpTools.IndexModel
+@{ ViewData["Title"] = "HTTP Tools"; }
+<div class="row-between">
+    <h1>HTTP Tools</h1>
+    <a class="btn" href="/HttpTools/Edit" id="new-http-tool">New HTTP tool</a>
+</div>
+<p class="muted">Turn a REST endpoint into a tool the agent can call. The model only sees the name, description and input fields. URLs, credentials and response handling stay on the server. Create an <a href="/Connections/Edit">HTTP API connection</a> first.</p>
+@if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice">@Model.Message</p> }
+<div class="card wide">
+    @if (Model.Items.Count == 0) { <p class="muted" id="http-tools-empty">No HTTP tools yet.</p> }
+    else
+    {
+        <table id="http-tools-table">
+            <thead><tr><th>Name</th><th>Method</th><th>Connection</th><th>Used by</th></tr></thead>
+            <tbody>
+            @foreach (var t in Model.Items)
+            {
+                <tr data-http-tool-id="@t.Tool.Id">
+                    <td><a href="/HttpTools/Edit/@t.Tool.Id">@t.Tool.DisplayName</a> <code>@t.Tool.Name</code></td>
+                    <td>@t.Method</td>
+                    <td>@t.ConnectionName</td>
+                    <td>@t.UsedByAgents agent@(t.UsedByAgents == 1 ? "" : "s")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</div>

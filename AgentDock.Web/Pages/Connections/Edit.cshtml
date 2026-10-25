@@ -20,9 +20,21 @@
 }
 
 <form method="post" id="connection-form" class="card wide">
+    @if (Model.ConnectionId == null)
+    {
+        <label for="Input_Kind">Kind</label>
+        <select id="Input_Kind" name="Input.Kind">
+            <option value="Mcp" selected="@(Model.Input.Kind != "Http")">MCP server (tools discovered automatically)</option>
+            <option value="Http" selected="@(Model.Input.Kind == "Http")">HTTP API (for custom HTTP tools)</option>
+        </select>
+    }
+    else
+    {
+        <p class="muted">Kind: <strong id="connection-kind">@(Model.Input.Kind == "Http" ? "HTTP API" : "MCP server")</strong></p>
+    }
     <label for="Input_Name">Name</label>
     <input id="Input_Name" name="Input.Name" value="@Model.Input.Name" maxlength="100" />
-    <label for="Input_BaseUrl">MCP server URL</label>
+    <label for="Input_BaseUrl">@(Model.Input.Kind == "Http" ? "API base URL" : "MCP server URL") <span class="muted">(for HTTP APIs, tool URLs are relative to this)</span></label>
     <input id="Input_BaseUrl" name="Input.BaseUrl" value="@Model.Input.BaseUrl" maxlength="2048" />
     <label for="Input_AuthType">Authentication</label>
     <select id="Input_AuthType" name="Input.AuthType">
@@ -41,11 +53,16 @@
 @if (Model.ConnectionId != null)
 {
     <div class="card wide" style="margin-top:24px">
-        <h2>Tools</h2>
+        <h2>@(Model.Input.Kind == "Http" ? "Status" : "Tools")</h2>
         <p class="muted">Status: <strong id="connection-status">@Model.Status</strong>@if (!string.IsNullOrEmpty(Model.LastError)) { <span> - @Model.LastError</span> }</p>
         <form method="post" asp-page-handler="Test" class="inline"><button type="submit" id="test-connection">Test</button></form>
+        @if (Model.Input.Kind == "Http") { <p class="muted">Define tools that call this API under <a href="/HttpTools">HTTP Tools</a>.</p> }
+        else
+        {
         <form method="post" asp-page-handler="Discover" class="inline"><button type="submit" id="discover-tools">Discover tools</button></form>
-        @if (Model.Tools.Count == 0) { <p class="muted" id="tools-empty">No tools discovered yet.</p> }
+        }
+        @if (Model.Input.Kind == "Http") { }
+        else if (Model.Tools.Count == 0) { <p class="muted" id="tools-empty">No tools discovered yet.</p> }
         else
         {
             <table id="tools-table">

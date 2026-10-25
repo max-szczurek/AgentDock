@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using AgentDock.Core.Data;
+using AgentDock.Core.HttpTools;
 using AgentDock.Core.Outbound;
 using AgentDock.Core.Security;
 using AgentDock.Core.Services;
@@ -14,6 +15,8 @@ namespace AgentDock.Core.Mcp;
 public sealed class ConnectionInput
 {
     public string Name { get; set; } = "";
+    /// <summary>"Mcp" or "Http". Fixed at creation.</summary>
+    public string Kind { get; set; } = "Mcp";
     public string BaseUrl { get; set; } = "";
     public string AuthType { get; set; } = "None";
     /// <summary>Write-only. Null/blank on update keeps the stored token.</summary>
@@ -25,7 +28,7 @@ public sealed class ConnectionInput
 public sealed record ConnectionSaveResult(bool Success, IReadOnlyList<string> Errors, Connection? Connection = null);
 public sealed record TestResult(bool Ok, string Message, int ToolCount);
 public sealed record ConnectionSummary(Connection Connection, string? SecretHint, int ToolCount, int UsedByAgents);
-public sealed record ConnectionDeleteResult(bool Found, bool Deleted, IReadOnlyList<string> BlockedBy);
+public sealed record ConnectionDeleteResult(bool Found, bool Deleted, IReadOnlyList<string> BlockedBy, IReadOnlyList<string>? HttpTools = null);
 
 public interface IConnectionService
 {
@@ -75,7 +78,7 @@ public static partial class ConnectionRules
     };
 }
 
-public sealed class ConnectionService(AgentDockDbContext db, ISecretStore secrets, IMcpGateway gateway, OutboundOptions outbound, TimeProvider time) : IConnectionService
+public sealed class ConnectionService(AgentDockDbContext db, ISecretStore secrets, IMcpGateway gateway, IHttpToolRunner httpRunner, OutboundOptions outbound, TimeProvider time) : IConnectionService
 {
     public const int MaxConnections = 50;
 
@@ -86,7 +89,7 @@ public sealed class ConnectionService(AgentDockDbContext db, ISecretStore secret
             {
                 Conn = c,
                 Hint = db.Secrets.Where(s => s.Id == c.SecretId).Select(s => s.Hint).FirstOrDefault(),
-                Tools = db.McpToolSnapshots.Count(t => t.ConnectionId == c.Id && t.IsPresent),
+                Tools = c.Kind == "Http" ? db.HttpTools.Count(t => t.ConnectionId == c.Id && t.DeletedUtc == null) : db.McpToolSnapshots.Count(t => t.ConnectionId == c.Id && t.IsPresent),
                 Used = db.AgentConnections.Count(a => a.ConnectionId == c.Id && db.Agents.Any(g => g.Id == a.AgentId && g.DeletedUtc == null)),
             }).ToListAsync(ct);
         return rows.Select(r => new ConnectionSummary(r.Conn, r.Hint, r.Tools, r.Used)).ToList();
@@ -101,7 +104,7 @@ public sealed class ConnectionService(AgentDockDbContext db, ISecretStore secret
         if (c == null) return null;
         return new ConnectionInput
         {
-            Name = c.Name, BaseUrl = c.BaseUrl, AuthType = c.AuthType, TimeoutSeconds = c.TimeoutSeconds,
+            Name = c.Name, Kind = c.Kind, BaseUrl = c.BaseUrl, AuthType = c.AuthType, TimeoutSeconds = c.TimeoutSeconds,
             StaticHeaders = string.IsNullOrEmpty(c.StaticHeadersJson) ? [] : JsonSerializer.Deserialize<Dictionary<string, string>>(c.StaticHeadersJson) ?? [],
         };
     }
@@ -109,11 +112,12 @@ public sealed class ConnectionService(AgentDockDbContext db, ISecretStore secret
     public async Task<ConnectionSaveResult> CreateAsync(Guid accountId, ConnectionInput input, CancellationToken ct = default)
     {
         var errors = Validate(input, requireToken: true);
+        if (input.Kind is not ("Mcp" or "Http")) errors.Add("Choose a valid connection kind.");
         if (await db.Connections.CountAsync(c => c.AccountId == accountId && c.DeletedUtc == null, ct) >= MaxConnections) errors.Add($"Limit of {MaxConnections} connections reached.");
         if (await NameTakenAsync(accountId, input.Name.Trim(), null, ct)) errors.Add("A connection with this name already exists.");
         if (errors.Count > 0) return new(false, errors);
 
-        var c = new Connection { AccountId = accountId, Kind = "Mcp" };
+        var c = new Connection { AccountId = accountId, Kind = input.Kind == "Http" ? "Http" : "Mcp" };
         Apply(c, input);
         if (input.AuthType == "Bearer") c.SecretId = await secrets.CreateAsync(accountId, SecretPurpose.ConnectionBearer, input.BearerToken!.Trim(), ct);
         db.Connections.Add(c);
@@ -165,6 +169,8 @@ public sealed class ConnectionService(AgentDockDbContext db, ISecretStore secret
     {
         var c = await GetAsync(accountId, id, ct);
         if (c == null) return new(false, false, []);
+        var httpTools = await db.HttpTools.Where(t => t.AccountId == accountId && t.ConnectionId == id && t.DeletedUtc == null).OrderBy(t => t.Name).Select(t => t.Name).ToListAsync(ct);
+        if (httpTools.Count > 0) return new(true, false, [], httpTools);
         var links = await db.AgentConnections.Where(a => a.AccountId == accountId && a.ConnectionId == id).ToListAsync(ct);
         if (links.Count > 0)
         {
@@ -197,6 +203,15 @@ public sealed class ConnectionService(AgentDockDbContext db, ISecretStore secret
         var c = await GetAsync(accountId, id, ct);
         if (c == null) return (null, 0);
         var now = time.GetUtcNow().UtcDateTime;
+        if (c.Kind == "Http")
+        {
+            if (persistTools) return (new TestResult(false, "Tool discovery applies to MCP connections only.", 0), 0);
+            var httpAccess = (await ResolveAccessAsync(accountId, id, ct))!;
+            var (ok, message) = await httpRunner.PingAsync(httpAccess, ct);
+            c.Status = ok ? "Ok" : "Error"; c.LastError = ok ? null : message; c.LastTestedUtc = now;
+            await db.SaveChangesAsync(CancellationToken.None);
+            return (new TestResult(ok, message, 0), 0);
+        }
         try
         {
             var access = (await ResolveAccessAsync(accountId, id, ct))!;

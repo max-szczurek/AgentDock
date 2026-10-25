@@ -7,10 +7,10 @@
 </div>
 <p class="muted">Pick which tools from your connections this agent may use. Only ticked tools are ever offered to the model.
 Tools that change data (or do not declare themselves read-only) require confirmation by default.
-Confirmation prompts arrive in a later release, so tools that require confirmation are refused for now.</p>
+When the agent wants to use a tool that requires confirmation, the visitor sees an approval card in the chat first.</p>
 @if (!string.IsNullOrEmpty(Model.Message)) { <p class="notice" id="tools-message">@Model.Message</p> }
 @foreach (var e in Model.Errors) { <p class="error">@e</p> }
-@if (Model.Items.Count == 0) { <p class="muted" id="no-connections">No connections yet. <a href="/Connections/Edit">Create one</a>.</p> }
+@if (Model.Items.Count == 0 && Model.HttpItems.Count == 0) { <p class="muted" id="no-connections">No connections or HTTP tools yet. <a href="/Connections/Edit">Create a connection</a> or an <a href="/HttpTools/Edit">HTTP tool</a>.</p> }
 <form method="post" id="tools-form">
 @for (var i = 0; i < Model.Items.Count; i++)
 {
@@ -46,5 +46,31 @@ Confirmation prompts arrive in a later release, so tools that require confirmati
         }
     </div>
 }
-@if (Model.Items.Count > 0) { <button type="submit" id="save-tools">Save tools</button> }
+@if (Model.HttpItems.Count > 0)
+{
+    <div class="card wide" style="margin-bottom:24px" id="http-tools-card">
+        <h2>HTTP tools</h2>
+        <p class="muted">Custom tools defined under <a href="/HttpTools">HTTP Tools</a>. Anything other than GET requires confirmation by default.</p>
+        <table>
+            <thead><tr><th>Use</th><th>Tool</th><th>Enabled</th><th>Requires confirmation</th><th>Description</th></tr></thead>
+            <tbody>
+            @for (var h = 0; h < Model.HttpItems.Count; h++)
+            {
+                var t = Model.HttpItems[h];
+                <tr data-http-tool="@t.Tool.Id">
+                    <td>
+                        <input type="hidden" name="HttpRows[@h].HttpToolId" value="@t.Tool.Id" />
+                        <input type="checkbox" name="HttpRows[@h].Assigned" value="true" @(t.Assigned ? "checked" : "") class="http-assign-box" />
+                    </td>
+                    <td><code>http__@t.Tool.Name</code> <span class="muted">@t.Method on @t.ConnectionName</span></td>
+                    <td><input type="checkbox" name="HttpRows[@h].Enabled" value="true" @(!t.Assigned || t.Enabled ? "checked" : "") /></td>
+                    <td><input type="checkbox" name="HttpRows[@h].Confirm" value="true" @((t.Assigned ? t.RequiresConfirmation : t.DefaultConfirm) ? "checked" : "") /></td>
+                    <td>@t.Tool.Description</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+@if (Model.Items.Count > 0 || Model.HttpItems.Count > 0) { <button type="submit" id="save-tools">Save tools</button> }
 </form>

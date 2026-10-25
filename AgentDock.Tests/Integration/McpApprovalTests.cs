@@ -228,11 +228,11 @@ public partial class McpToolTests
         await env.AssignAsync("gh", ("nap", false), ("echo", false));
         var c = await env.SessionAsync();
         env.Claude.Script = UsesThenAnswer(("t1", "gh__nap", "{}"), ("t2", "gh__nap", "{}"), ("t3", "gh__nap", "{}"), ("t4", "gh__echo", """{"text":"last"}"""));
-        var sw = Stopwatch.StartNew();
+        Volatile.Write(ref FakeMcpTools.MaxConcurrentNaps, 0);
         var events = await TurnAsync(c, "go");
-        sw.Stop();
         Assert.IsTrue(events.Any(e => e.Name == "text.delta"));
-        Assert.IsTrue(sw.ElapsedMilliseconds < 2000, $"three 700 ms tools should overlap, took {sw.ElapsedMilliseconds} ms");
+        Assert.IsTrue(FakeMcpTools.MaxConcurrentNaps >= 2, $"read-only tools should overlap, max concurrency was {FakeMcpTools.MaxConcurrentNaps}");
+        Assert.IsTrue(FakeMcpTools.MaxConcurrentNaps <= 4, "the parallel cap is 4");
         var results = env.Claude.Requests.Last().Messages.Last()!["content"]!.AsArray();
         CollectionAssert.AreEqual(new[] { "t1", "t2", "t3", "t4" }, results.Select(r => r!["tool_use_id"]!.GetValue<string>()).ToList());
         Assert.AreEqual("echo:last", results[3]!["content"]!.GetValue<string>());

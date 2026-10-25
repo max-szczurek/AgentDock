@@ -39,6 +39,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChatTurnService, ChatTurnService>();
         services.AddScoped<AgentDock.Core.Mcp.IMcpGateway, AgentDock.Core.Mcp.McpGateway>();
         services.AddScoped<AgentDock.Core.Mcp.IConnectionService, AgentDock.Core.Mcp.ConnectionService>();
+        services.AddScoped<AgentDock.Core.HttpTools.IHttpToolRunner, AgentDock.Core.HttpTools.HttpToolRunner>();
+        services.AddScoped<AgentDock.Core.HttpTools.IHttpToolService, AgentDock.Core.HttpTools.HttpToolService>();
         services.AddScoped<AgentDock.Core.Mcp.IAgentToolService, AgentDock.Core.Mcp.AgentToolService>();
         services.AddScoped<AgentDock.Core.Mcp.IToolRegistryFactory, AgentDock.Core.Mcp.ToolRegistryFactory>();
         services.AddScoped<AgentDock.Core.Mcp.IToolExecutor, AgentDock.Core.Mcp.ToolExecutor>();

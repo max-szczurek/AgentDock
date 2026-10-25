@@ -35,7 +35,18 @@ public sealed class FakeMcpTools
     public static string Boom() => throw new InvalidOperationException("secret-internal-detail");
 
     [McpServerTool(Name = "nap", ReadOnly = true), System.ComponentModel.Description("Sleeps briefly")]
-    public static async Task<string> Nap() { await Task.Delay(700); return "rested"; }
+    public static async Task<string> Nap()
+    {
+        var now = Interlocked.Increment(ref _napping);
+        int seen;
+        while (now > (seen = Volatile.Read(ref MaxConcurrentNaps))) Interlocked.CompareExchange(ref MaxConcurrentNaps, now, seen);
+        await Task.Delay(700);
+        Interlocked.Decrement(ref _napping);
+        return "rested";
+    }
+
+    private static int _napping;
+    public static int MaxConcurrentNaps;
 
     [McpServerTool(Name = "long_text", ReadOnly = true), System.ComponentModel.Description("Returns a lot of text")]
     public static string LongText() => new('y', 40_000);
@@ -67,6 +78,8 @@ public partial class McpToolTests
         public AppFactory Factory = null!;
         public WebApplication Mcp = null!;
         public int McpPort;
+        public int ClosedPort;
+        public FakeApiState Api = new();
         public volatile Fault Fault;
         public int McpRequestsDuringFault;
         public HttpClient Owner = null!;
@@ -111,8 +124,13 @@ public partial class McpToolTests
                 await next();
             });
             e.Mcp.MapMcp("/mcp");
+            MapFakeApi(e.Mcp, e.Api, () => e.McpPort);
             await e.Mcp.StartAsync();
             e.McpPort = new Uri(e.Mcp.Urls.First()).Port;
+            var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            e.ClosedPort = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
 
             e.Factory = new AppFactory("Staging", new()
             {
@@ -127,7 +145,7 @@ public partial class McpToolTests
                 services.RemoveAll<IClaudeGateway>();
                 services.AddSingleton<IClaudeGateway>(e.Claude);
                 services.RemoveAll<OutboundOptions>();
-                services.AddSingleton(new OutboundOptions { IsDevelopment = true, AllowHttpForDevelopment = true, AllowedPorts = [e.McpPort] });
+                services.AddSingleton(new OutboundOptions { IsDevelopment = true, AllowHttpForDevelopment = true, AllowedPorts = [e.McpPort, e.ClosedPort] });
                 services.RemoveAll<IDnsResolver>();
                 services.AddSingleton<IDnsResolver>(new LoopbackResolver());
                 services.RemoveAll<IIpPolicy>();

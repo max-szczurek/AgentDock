@@ -18,6 +18,8 @@ public class AgentDockDbContext(DbContextOptions<AgentDockDbContext> options)
     public DbSet<AgentConnection> AgentConnections => Set<AgentConnection>();
     public DbSet<AgentMcpTool> AgentMcpTools => Set<AgentMcpTool>();
     public DbSet<ToolExecution> ToolExecutions => Set<ToolExecution>();
+    public DbSet<HttpTool> HttpTools => Set<HttpTool>();
+    public DbSet<AgentHttpTool> AgentHttpTools => Set<AgentHttpTool>();
     public DbSet<VisitorSession> VisitorSessions => Set<VisitorSession>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ConversationMessage> ConversationMessages => Set<ConversationMessage>();
@@ -138,6 +140,25 @@ public class AgentDockDbContext(DbContextOptions<AgentDockDbContext> options)
             e.HasKey(x => new { x.AgentConnectionId, x.ToolName });
             e.Property(x => x.ToolName).HasMaxLength(128);
             e.Property(x => x.ApprovedSchemaHash).HasColumnType("binary(32)");
+        });
+
+        builder.Entity<HttpTool>(e =>
+        {
+            e.ToTable("HttpTool");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Name).HasMaxLength(64);
+            e.Property(x => x.DisplayName).HasMaxLength(100);
+            e.Property(x => x.Description).HasMaxLength(2000);
+            e.Property(x => x.CreatedUtc).HasColumnType("datetime2(3)");
+            e.Property(x => x.UpdatedUtc).HasColumnType("datetime2(3)");
+            e.Property(x => x.DeletedUtc).HasColumnType("datetime2(3)");
+        });
+
+        builder.Entity<AgentHttpTool>(e =>
+        {
+            e.ToTable("AgentHttpTool");
+            e.HasKey(x => new { x.AgentId, x.HttpToolId });
         });
 
         builder.Entity<ToolExecution>(e =>

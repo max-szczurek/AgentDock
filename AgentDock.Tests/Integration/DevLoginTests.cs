@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.RegularExpressions;
 using AgentDock.Tests.Infrastructure;
 
 namespace AgentDock.Tests.Integration;
@@ -100,6 +102,21 @@ public class DevLoginTests
 
             await c.SendAsync(Post(email, Secret));
             Assert.AreEqual(1, await TestDb.CountAccountsAsync(email), "sign-in is idempotent");
+
+            html = await (await c.GetAsync("/")).Content.ReadAsStringAsync();
+            var logoutForm = Regex.Match(html, "<form\\b[^>]*action=\"/Account/Logout\"[\\s\\S]*?</form>");
+            Assert.IsTrue(logoutForm.Success, "sign-out form missing");
+            var token = Regex.Match(logoutForm.Value, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"");
+            Assert.IsTrue(token.Success, "sign-out form is missing an antiforgery token");
+            var logout = await c.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/Account/Logout")
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["__RequestVerificationToken"] = token.Groups[1].Value }),
+            });
+            Assert.AreEqual(HttpStatusCode.Redirect, logout.StatusCode);
+            StringAssert.Contains(logout.Headers.Location!.ToString(), "/Account/Login");
+            var after = await c.GetAsync("/");
+            Assert.AreEqual(HttpStatusCode.Redirect, after.StatusCode);
+            StringAssert.Contains(after.Headers.Location!.ToString(), "/Account/Login");
         }
         finally { await TestDb.DeleteUserAsync(email); }
     }

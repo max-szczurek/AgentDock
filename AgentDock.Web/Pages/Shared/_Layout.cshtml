@@ -23,7 +23,7 @@
             <a href="/HttpTools" class="navlink">HTTP Tools</a>
             <a href="/Settings" class="navlink">Settings</a>
             <span class="who">@User.Identity.Name</span>
-            <form method="post" action="/Account/Logout" class="inline"><button type="submit" class="link">Sign out</button></form>
+            <form method="post" asp-page="/Account/Logout" class="inline"><button type="submit" class="link">Sign out</button></form>
         }
     </nav>
 </header>

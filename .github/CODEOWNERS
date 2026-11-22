@@ -1,0 +1,9 @@
+# Changes under these paths require approval from the repository owner.
+# Enforced on the default branch by the ruleset
+# "Only repository owner can change GitHub Actions".
+
+/.github/workflows/ @max-szczurek
+/.github/actions/ @max-szczurek
+**/action.yml @max-szczurek
+**/action.yaml @max-szczurek
+/.github/CODEOWNERS @max-szczurek
